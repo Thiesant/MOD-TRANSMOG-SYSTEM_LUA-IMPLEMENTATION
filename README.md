@@ -20,6 +20,7 @@ Dedicated UI interface addon instead to bypass standard NPC gossip, which is con
 * Sets management
 * Persistent collection account wide
 * Persistent sets account wide
+* Can transmog weapons visual enchantment
 * Multi-language support (EN / FR)
 * Server–client communication via AIO
 
