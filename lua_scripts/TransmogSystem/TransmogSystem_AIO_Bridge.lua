@@ -101,25 +101,6 @@ local ALLOWED_QUALITIES = {
     [6] = true,
 }
 
--- ───────────────────────────────── ITEM TOOLTIP ─────────────────────────────────
-
--- Show a tooltip on every item that are transmo eligible and not in the collection
-local ENABLE_NEW_APPEARANCE_TOOLTIP = true
-
--- Show a tooltip on every item that are transmo eligible and collected
--- Mostly used for debug, you can set it to false
-local ENABLE_COLLECTED_APPEARANCE_TOOLTIP = true
-
--- ──────────────────────────── CLIENT TOOLTIP SETTINGS ───────────────────────────
-
--- Note: These settings are sent to client but controlled by client-side preferences
--- Client can choose to show/hide tooltips regardless of server settings
--- These are defaults that will be overridden by client preferences
-local DEFAULT_CLIENT_SETTINGS = {
-    show_new_appearance_tooltip = true,
-    show_collected_appearance_tooltip = true,
-}
-    -- ============================================================================
 	
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
 -- ║                                    SCRIPT                                    ║
@@ -906,28 +887,17 @@ if ENABLE_AIO_BRIDGE then
         AIO.Msg():Add("TRANSMOG", "Removed", slotId):Send(player)
     end
     
-    -- Check appearance with client settings awareness
-    TRANSMOG_HANDLER.CheckAppearance = function(player, itemId, clientSettings)
+    -- Check if appearance is collected and eligible for transmog
+    TRANSMOG_HANDLER.CheckAppearance = function(player, itemId)
         local accountId = player:GetAccountId()
-        local collected = HasAppearance(accountId, itemId)
+        local eligible = CanTransmogItem(itemId)
+        local collected = eligible and HasAppearance(accountId, itemId) or false
         
-        -- Prepare response
-        local response = {
+        AIO.Msg():Add("TRANSMOG", "AppearanceCheck", {
             itemId = itemId,
-            collected = collected,
-            canShowTooltip = true
-        }
-        
-        -- If we have client settings, respect them
-        if clientSettings then
-            if collected and not clientSettings.show_collected_appearance_tooltip then
-                response.canShowTooltip = false
-            elseif not collected and not clientSettings.show_new_appearance_tooltip then
-                response.canShowTooltip = false
-            end
-        end
-        
-        AIO.Msg():Add("TRANSMOG", "AppearanceCheck", response):Send(player)
+            eligible = eligible,
+            collected = collected
+        }):Send(player)
     end
     
     -- Bulk check appearances

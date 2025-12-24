@@ -32,16 +32,16 @@ local lastSearchText = ""
 local playerGender = UnitSex("player") - 2
 local RACE_TO_ID = {
     ["Human"]    = 1,
-	["Orc"]      = 2,
-	["Dwarf"]    = 3,
-	["NightElf"] = 4,
+    ["Orc"]      = 2,
+    ["Dwarf"]    = 3,
+    ["NightElf"] = 4,
     ["Scourge"]  = 5,
-	["Tauren"]   = 6,
-	["Gnome"]    = 7,
-	["Troll"]    = 8,
+    ["Tauren"]   = 6,
+    ["Gnome"]    = 7,
+    ["Troll"]    = 8,
     ["Goblin"]   = 9,
-	["BloodElf"] = 10,
-	["Draenei"]  = 11,
+    ["BloodElf"] = 10,
+    ["Draenei"]  = 11,
 }
 local _, playerRaceFile = UnitRace("player")
 local playerRaceId = RACE_TO_ID[playerRaceFile] or 0
@@ -134,8 +134,11 @@ local QUALITY_COLORS = {
 
 local collectedAppearances = {}
 local activeTransmogs = {}
-local pendingTooltipChecks = {}
 local isCollectionLoaded = false
+
+-- Cache for server tooltip responses: itemId -> {eligible=bool, collected=bool}
+local appearanceCache = {}
+local pendingTooltipChecks = {}
 
 -- Current UI state (initialized properly in PLAYER_ENTERING_WORLD)
 local currentSlot = "Head"
@@ -311,16 +314,17 @@ end
 
 
 TRANSMOG_HANDLER.AppearanceCheck = function(player, data)
-    if data then
-        if data.collected then
-            collectedAppearances[data.itemId] = true
-        end
-        if pendingTooltipChecks[data.itemId] then
-            for _, callback in ipairs(pendingTooltipChecks[data.itemId]) do
-                callback(data.collected)
-            end
-            pendingTooltipChecks[data.itemId] = nil
-        end
+    if not data or not data.itemId then return end
+    
+    -- Cache the server response (eligibility + collected status)
+    appearanceCache[data.itemId] = {
+        eligible = data.eligible or false,
+        collected = data.collected or false
+    }
+    pendingTooltipChecks[data.itemId] = nil
+    
+    if data.collected then
+        collectedAppearances[data.itemId] = true
     end
 end
 
@@ -340,6 +344,9 @@ TRANSMOG_HANDLER.NewAppearance = function(player, data)
     collectedAppearances[data.itemId] = true
     TransmogDB.collection = TransmogDB.collection or {}
     TransmogDB.collection[data.itemId] = true
+    
+    -- Update appearance cache
+    appearanceCache[data.itemId] = { eligible = true, collected = true }
     
     -- Get item name for display
     local itemName, itemLink = GetItemInfo(data.itemId)
@@ -435,7 +442,7 @@ local function GetActiveTransmog(slotName)
 end
 
 -- ============================================================================
--- Tooltip Hook
+-- Tooltip Hook - Server-driven eligibility
 -- ============================================================================
 
 local function OnTooltipSetItem(tooltip)
@@ -444,36 +451,24 @@ local function OnTooltipSetItem(tooltip)
     
     local itemId = tonumber(link:match("item:(%d+)"))
     if not itemId then return end
-       
-    if isCollectionLoaded then
-        if IsAppearanceCollected(itemId) then
+    
+    -- Check cache first
+    local cached = appearanceCache[itemId]
+    if cached then
+        if not cached.eligible then return end
+        if cached.collected then
             tooltip:AddLine(L["APPEARANCE_COLLECTED"])
         else
             tooltip:AddLine(L["NEW_APPEARANCE"])
         end
         tooltip:Show()
-    else
-        if collectedAppearances[itemId] == nil then
-            pendingTooltipChecks[itemId] = pendingTooltipChecks[itemId] or {}
-            table.insert(pendingTooltipChecks[itemId], function(collected)
-                if tooltip:IsShown() then
-                    if collected then
-                        tooltip:AddLine(L["APPEARANCE_COLLECTED"])
-                    else
-                        tooltip:AddLine(L["NEW_APPEARANCE"])
-                    end
-                    tooltip:Show()
-                end
-            end)
-            AIO.Msg():Add("TRANSMOG", "CheckAppearance", itemId):Send()
-        else
-            if collectedAppearances[itemId] then
-                tooltip:AddLine(L["APPEARANCE_COLLECTED"])
-            else
-                tooltip:AddLine(L["NEW_APPEARANCE"])
-            end
-            tooltip:Show()
-        end
+        return
+    end
+    
+    -- Not in cache - ask server (only once per item per session)
+    if not pendingTooltipChecks[itemId] then
+        pendingTooltipChecks[itemId] = true
+        AIO.Msg():Add("TRANSMOG", "CheckAppearance", itemId):Send()
     end
 end
 
