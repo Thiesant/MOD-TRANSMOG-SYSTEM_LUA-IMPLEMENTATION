@@ -130,3 +130,33 @@ L["SET_SAVE_TOOLTIP"] = "Sauvegarder les objets sélectionnés comme nouvel ense
 L["SET_DELETE_TOOLTIP"] = "Supprimer l'ensemble sélectionné"
 L["SET_APPLY_TOOLTIP"] = "Appliquer cet ensemble comme transmog actif\n(Seules les apparences collectées seront appliquées)"
 L["APPLY_HINT"] = "Sélectionnez une apparence et Shift+Clic pour l'appliquer"
+
+-- Mode Toggle
+L["MODE_ITEM"] = "Objets"
+L["MODE_ENCHANT"] = "Enchants"
+L["MODE_TOGGLE_TOOLTIP_ITEM"] = "Mode Transmog Objets"
+L["MODE_TOGGLE_TOOLTIP_ENCHANT"] = "Mode Transmog Enchantements"
+L["MODE_TOGGLE_DESC_ITEM"] = "Cliquez pour passer au mode Enchantements"
+L["MODE_TOGGLE_DESC_ENCHANT"] = "Cliquez pour passer au mode Objets"
+L["MODE_ENCHANT_NOTE"] = "Seuls les emplacements d'armes peuvent avoir des visuels d'enchantement"
+L["ENCHANT_MODE"] = "Mode Enchant"
+
+-- Enchantment Strings
+L["ENCHANT_CATEGORY"] = "Catégorie"
+L["ENCHANT_ACTIVE"] = "|cff00ff00Actuellement Actif|r"
+L["CLEAR_ENCHANT"] = "|cffff0000Clic droit pour retirer|r"
+L["APPLY_ENCHANT_SHIFT_CLICK"] = "|cff00ff00Shift+Clic:|r Appliquer le visuel d'enchantement"
+L["ENCHANT_APPLIED"] = "Visuel d'enchantement appliqué!"
+L["ENCHANT_REMOVED"] = "Visuel d'enchantement retiré!"
+L["ENCHANT_COLLECTION_LOADED"] = "Collection d'enchantements chargée: %d visuels"
+
+-- Enchant Categories
+L["Runeforge"] = "Forge de Rune"
+L["Fire"] = "Feu"
+L["Frost"] = "Givre"
+L["Nature"] = "Nature"
+L["Arcane"] = "Arcane"
+L["Holy"] = "Sacré"
+L["Shadow"] = "Ombre"
+L["Physical"] = "Physique"
+L["Shaman"] = "Chaman"

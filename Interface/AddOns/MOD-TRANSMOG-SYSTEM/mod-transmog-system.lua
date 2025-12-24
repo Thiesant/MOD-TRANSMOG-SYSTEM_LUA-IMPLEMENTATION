@@ -159,10 +159,37 @@ local transmogSets = {}  -- Cached sets from server: { [setNumber] = { name = ".
 local MAX_SETS = 10
 local selectedSetNumber = nil  -- Track currently selected set number
 
+-- ============================================================================
+-- Transmog Mode (Item vs Enchantment)
+-- ============================================================================
+
+local TRANSMOG_MODE_ITEM = 1
+local TRANSMOG_MODE_ENCHANT = 2
+local currentTransmogMode = TRANSMOG_MODE_ITEM
+
+-- Slots eligible for enchantment transmog (weapons only)
+local ENCHANT_ELIGIBLE_SLOTS = {
+    MainHand = true,
+    SecondaryHand = true,
+}
+
+-- Enchantment collection data
+local collectedEnchantments = {}
+local activeEnchantTransmogs = {}
+
+-- Enchantment data received from server (populated by AIO handler)
+-- Structure: { id = number, itemVisual = number, name = string, icon = string }
+local ENCHANT_VISUALS = {}
+
+local ENCHANT_CATEGORIES = { "All" }  -- Categories will be populated from server data
+local currentEnchantCategory = "All"
+
 -- Forward declarations for functions used by AIO handlers
 local UpdatePreviewGrid
 local UpdateSlotButtonIcons
 local UpdateSetDropdown
+local UpdateEnchantGrid
+local modeToggleButton
 
 -- ============================================================================
 -- C_Timer Polyfill
@@ -569,6 +596,92 @@ TRANSMOG_HANDLER.SetError = function(player, errorMsg)
 end
 
 -- ============================================================================
+-- Enchantment AIO Handlers
+-- ============================================================================
+
+TRANSMOG_HANDLER.EnchantCollectionData = function(player, data)
+    if not data then return end
+    if data.chunk == 1 then
+        collectedEnchantments = {}
+        ENCHANT_VISUALS = {}  -- Reset the enchant list
+    end
+    
+    -- Receive enchant data from server
+    for _, enchant in ipairs(data.enchants or {}) do
+        -- Structure: { id, itemVisual, name, icon }
+        table.insert(ENCHANT_VISUALS, {
+            id = enchant.id,
+            itemVisual = enchant.itemVisual,
+            name = enchant.name,
+            icon = enchant.icon
+        })
+        collectedEnchantments[enchant.id] = true
+    end
+    
+    if data.chunk == data.totalChunks then
+        print(string.format("|cff00ff00[Transmog]|r Loaded %d enchant visuals", #ENCHANT_VISUALS))
+        -- Update grid if in enchant mode
+        if currentTransmogMode == TRANSMOG_MODE_ENCHANT then
+            UpdateEnchantGrid()
+        end
+    end
+end
+
+TRANSMOG_HANDLER.ActiveEnchantTransmogs = function(player, data)
+    activeEnchantTransmogs = data or {}
+    C_Timer.After(0, function()
+        UpdateSlotButtonIcons()
+    end)
+end
+
+TRANSMOG_HANDLER.EnchantApplied = function(player, data)
+    if data then
+        activeEnchantTransmogs[data.slot] = data.visualId
+        print("|cff00ff00[Transmog]|r Enchant visual applied!")
+        UpdateSlotButtonIcons()
+        if UpdateEnchantGrid then UpdateEnchantGrid() end
+    end
+end
+
+TRANSMOG_HANDLER.EnchantRemoved = function(player, slot)
+    activeEnchantTransmogs[slot] = nil
+    print("|cff00ff00[Transmog]|r Enchant visual removed")
+    UpdateSlotButtonIcons()
+    if UpdateEnchantGrid then UpdateEnchantGrid() end
+end
+
+-- ============================================================================
+-- Enchantment Helper Functions
+-- ============================================================================
+
+local function RequestEnchantCollectionFromServer()
+    AIO.Msg():Add("TRANSMOG", "RequestEnchantCollection"):Send()
+end
+
+local function RequestActiveEnchantTransmogsFromServer()
+    AIO.Msg():Add("TRANSMOG", "RequestActiveEnchantTransmogs"):Send()
+end
+
+local function ApplyEnchantTransmog(slotName, enchantId)
+    local slotId = SLOT_NAME_TO_EQUIP_SLOT[slotName]
+    if slotId then
+        AIO.Msg():Add("TRANSMOG", "ApplyEnchantTransmog", slotId, enchantId):Send()
+    end
+end
+
+local function RemoveEnchantTransmog(slotName)
+    local slotId = SLOT_NAME_TO_EQUIP_SLOT[slotName]
+    if slotId then
+        AIO.Msg():Add("TRANSMOG", "RemoveEnchantTransmog", slotId):Send()
+    end
+end
+
+local function GetFilteredEnchantVisuals(category)
+    -- Return all enchants since we no longer have categories from server
+    return ENCHANT_VISUALS
+end
+
+-- ============================================================================
 -- Transmog Application Functions
 -- ============================================================================
 
@@ -837,6 +950,26 @@ local function CreateItemFrame(parent, index)
 	
     btn:SetScript("OnClick", function(self, button)
         local f = self:GetParent()
+        
+        -- Handle enchant mode
+        if f.enchantMode and f.enchantData then
+            local enchantData = f.enchantData
+            if button == "LeftButton" then
+                if IsShiftKeyDown() then
+                    ApplyEnchantTransmog(currentSlot, enchantData.id)
+                    PlaySound("igCharacterInfoTab")
+                end
+            elseif button == "RightButton" then
+                local slotId = SLOT_NAME_TO_EQUIP_SLOT[currentSlot]
+                if activeEnchantTransmogs[slotId] then
+                    RemoveEnchantTransmog(currentSlot)
+                    PlaySound("igMainMenuOptionCheckBoxOn")
+                end
+            end
+            return
+        end
+        
+        -- Normal item mode
         if f.itemId and f.isLoaded then
             if button == "LeftButton" then
                 if IsShiftKeyDown() then
@@ -875,6 +1008,30 @@ local function CreateItemFrame(parent, index)
     
     btn:SetScript("OnEnter", function(self)
         local f = self:GetParent()
+        
+        -- Handle enchant mode tooltip
+        if f.enchantMode and f.enchantData then
+            local enchantData = f.enchantData
+            GameTooltip:SetOwner(f, "ANCHOR_TOPRIGHT")
+            GameTooltip:SetText(enchantData.name)
+            GameTooltip:AddLine("Visual ID: " .. (enchantData.itemVisual or "?"), 0.5, 0.5, 0.5)
+            GameTooltip:AddLine(" ")
+            local slotId = SLOT_NAME_TO_EQUIP_SLOT[currentSlot]
+            if activeEnchantTransmogs[slotId] == enchantData.id then
+                GameTooltip:AddLine(L["ENCHANT_ACTIVE"] or "|cffff66b2Currently Active|r")
+                GameTooltip:AddLine(L["CLEAR_ENCHANT"] or "|cffff0000Right-click to remove|r", 1, 1, 1)
+            else
+                GameTooltip:AddLine(L["APPLY_ENCHANT_SHIFT_CLICK"] or "|cff00ff00Shift+Click:|r Apply", 1, 1, 1)
+            end
+            GameTooltip:Show()
+            -- Only highlight on hover (white border), not cyan
+            if not f.isActive then
+                f:SetBackdropBorderColor(1, 1, 1, 1)
+            end
+            return
+        end
+        
+        -- Normal item mode tooltip
         if f.itemId and f.isLoaded then
             GameTooltip:SetOwner(f, "ANCHOR_TOPRIGHT")
             GameTooltip:SetHyperlink("item:"..f.itemId)
@@ -905,7 +1062,17 @@ local function CreateItemFrame(parent, index)
         local f = self:GetParent()
         GameTooltip:Hide()
         
-        -- Restore border based on state
+        -- Handle enchant mode
+        if f.enchantMode then
+            if f.isActive then
+                f:SetBackdropBorderColor(1, 0.4, 0.7, 1)  -- Pink for active enchant
+            else
+                f:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)  -- Default gray
+            end
+            return
+        end
+        
+        -- Restore border based on state for item mode
         if f.itemId == selectedItemId then
             f:SetBackdropBorderColor(0, 1, 1, 1)  -- Cyan for selected
         elseif f.isActive then
@@ -1051,11 +1218,24 @@ UpdatePreviewGrid = function()
     -- Safety check - don't run if UI not created yet
     if not itemFrames or #itemFrames == 0 then return end
     
+    -- Handle enchant mode separately
+    if currentTransmogMode == TRANSMOG_MODE_ENCHANT then
+        UpdateEnchantGrid()
+        return
+    end
+    
     local cols, rows, itemWidth, itemHeight = CalculateGridLayout()
     itemsPerPage = cols * rows
     
     for _, frame in ipairs(itemFrames) do
         frame:Hide()
+        frame.enchantMode = nil
+        frame.enchantData = nil
+        -- Hide enchant-specific elements when returning to item mode
+        if frame.enchantIcon then frame.enchantIcon:Hide() end
+        if frame.enchantName then frame.enchantName:Hide() end
+        -- Show model again for item mode
+        if frame.model then frame.model:Show() end
     end
     
     local startIndex = (currentPage - 1) * itemsPerPage + 1
@@ -1103,6 +1283,104 @@ UpdatePreviewGrid = function()
     
     if mainFrame and mainFrame.pageText then
         mainFrame.pageText:SetText(string.format(L["PAGE"], currentPage, totalPages))
+    end
+end
+
+-- ============================================================================
+-- Enchant Grid Display
+-- ============================================================================
+
+local currentEnchantPage = 1
+
+UpdateEnchantGrid = function()
+    if not itemFrames or #itemFrames == 0 then return end
+    
+    local enchantList = GetFilteredEnchantVisuals(currentEnchantCategory)
+    local cols, rows, itemWidth, itemHeight = CalculateGridLayout()
+    local enchantPerPage = cols * rows
+    
+    for _, frame in ipairs(itemFrames) do
+        frame:Hide()
+        frame.enchantMode = nil
+        frame.enchantData = nil
+    end
+    
+    local startIndex = (currentEnchantPage - 1) * enchantPerPage + 1
+    local endIndex = math.min(startIndex + enchantPerPage - 1, #enchantList)
+    
+    local currentSlotId = SLOT_NAME_TO_EQUIP_SLOT[currentSlot]
+    local activeEnchantId = activeEnchantTransmogs[currentSlotId]
+    
+    local gridIndex = 1
+    for i = startIndex, endIndex do
+        local enchantData = enchantList[i]
+        local frame = itemFrames[gridIndex]
+        
+        if frame and enchantData then
+            frame:SetSize(itemWidth, itemHeight)
+            local col = (gridIndex - 1) % cols
+            local row = math.floor((gridIndex - 1) / cols)
+            local x = col * (itemWidth + GRID_SPACING)
+            local y = -row * (itemHeight + GRID_SPACING)
+            frame:ClearAllPoints()
+            frame:SetPoint("TOPLEFT", x, y)
+            
+            -- Mark frame as enchant mode
+            frame.enchantMode = true
+            frame.enchantData = enchantData
+            frame.itemId = nil
+            
+            -- Hide model, show icon instead
+            if frame.model then frame.model:Hide() end
+            
+            -- Create or update enchant icon
+            if not frame.enchantIcon then
+                frame.enchantIcon = frame:CreateTexture(nil, "ARTWORK")
+                frame.enchantIcon:SetSize(itemWidth - 20, itemWidth - 20)
+                frame.enchantIcon:SetPoint("TOP", 0, -10)
+            end
+            frame.enchantIcon:SetTexture(enchantData.icon)
+            frame.enchantIcon:Show()
+            
+            -- Create or update enchant name
+            if not frame.enchantName then
+                frame.enchantName = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                frame.enchantName:SetPoint("BOTTOM", 0, 8)
+                frame.enchantName:SetWidth(itemWidth - 8)
+            end
+            frame.enchantName:SetText(enchantData.name)
+            frame.enchantName:Show()
+            
+            -- Set border color - use pink (1, 0.4, 0.7) for active
+            local isActive = (activeEnchantId == enchantData.id)
+            frame.isActive = isActive
+            if isActive then
+                frame:SetBackdropBorderColor(1, 0.4, 0.7, 1)  -- Pink for active enchant
+                frame:SetBackdropColor(0.2, 0.1, 0.15, 1)    -- Slight pink background
+            else
+                frame:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+                frame:SetBackdropColor(0.15, 0.15, 0.15, 1)
+            end
+            
+            if frame.selectionBorder then frame.selectionBorder:Hide() end
+            if frame.collectedIcon then frame.collectedIcon:Hide() end
+            if frame.activeText then frame.activeText:Hide() end
+            if frame.newIcon then frame.newIcon:Hide() end
+            
+            frame:Show()
+            gridIndex = gridIndex + 1
+        end
+    end
+    
+    local totalPages = math.max(1, math.ceil(#enchantList / enchantPerPage))
+    if gridScrollbar then
+        gridScrollbar:SetMinMaxValues(1, math.max(1, totalPages))
+        gridScrollbar:SetValue(currentEnchantPage)
+    end
+    
+    if mainFrame and mainFrame.pageText then
+        mainFrame.pageText:SetText(string.format(L["PAGE"], currentEnchantPage, totalPages) .. 
+            " | " .. (L["ENCHANT_MODE"] or "Enchant Mode"))
     end
 end
 
@@ -1162,12 +1440,27 @@ local function CreatePreviewGrid(parent)
     gridScrollbar = slider
     
     local function ChangePage(delta)
-        local totalPages = math.max(1, math.ceil(#currentItems / itemsPerPage))
-        local newPage = currentPage + delta
-        newPage = math.max(1, math.min(totalPages, newPage))
-        if newPage ~= currentPage then
-            currentPage = newPage
-            UpdatePreviewGrid()
+        -- Handle enchant mode pagination
+        if currentTransmogMode == TRANSMOG_MODE_ENCHANT then
+            local enchantList = GetFilteredEnchantVisuals(currentEnchantCategory)
+            local cols, rows = CalculateGridLayout()
+            local enchantPerPage = cols * rows
+            local totalPages = math.max(1, math.ceil(#enchantList / enchantPerPage))
+            local newPage = currentEnchantPage + delta
+            newPage = math.max(1, math.min(totalPages, newPage))
+            if newPage ~= currentEnchantPage then
+                currentEnchantPage = newPage
+                UpdateEnchantGrid()
+            end
+        else
+            -- Item mode pagination
+            local totalPages = math.max(1, math.ceil(#currentItems / itemsPerPage))
+            local newPage = currentPage + delta
+            newPage = math.max(1, math.min(totalPages, newPage))
+            if newPage ~= currentPage then
+                currentPage = newPage
+                UpdatePreviewGrid()
+            end
         end
     end
     
@@ -1179,9 +1472,17 @@ local function CreatePreviewGrid(parent)
     
     slider:SetScript("OnValueChanged", function(self, value)
         local newPage = math.floor(value + 0.5)
-        if newPage ~= currentPage then
-            currentPage = newPage
-            UpdatePreviewGrid()
+        -- Handle enchant mode
+        if currentTransmogMode == TRANSMOG_MODE_ENCHANT then
+            if newPage ~= currentEnchantPage then
+                currentEnchantPage = newPage
+                UpdateEnchantGrid()
+            end
+        else
+            if newPage ~= currentPage then
+                currentPage = newPage
+                UpdatePreviewGrid()
+            end
         end
     end)
     
@@ -1322,6 +1623,7 @@ local function CreateSlotButton(parent, slotName)
     btn.UpdateTransmogIcon = function(self)
         local slotId = SLOT_NAME_TO_EQUIP_SLOT[self.slotName]
         local activeItemId = activeTransmogs[slotId]
+        local activeEnchant = activeEnchantTransmogs[slotId]
         
         -- Update transmog icon
         if activeItemId then
@@ -1357,10 +1659,16 @@ local function CreateSlotButton(parent, slotName)
                 self.activeBorder:Show()
                 self.activeBorder:SetVertexColor(1, 0.5, 0, 0.7)  -- Orange for search matches
             end
+        elseif activeEnchant and ENCHANT_ELIGIBLE_SLOTS[self.slotName] then
+            -- BUG 4 FIX: Show pink border for active enchant transmog
+            if self.activeBorder then
+                self.activeBorder:Show()
+                self.activeBorder:SetVertexColor(1, 0.4, 0.7, 0.7)  -- Pink for active enchant transmog
+            end
         elseif activeItemId then
             if self.activeBorder then
                 self.activeBorder:Show()
-                self.activeBorder:SetVertexColor(0, 1, 0, 0.7)    -- Green for active transmog
+                self.activeBorder:SetVertexColor(0, 1, 0, 0.7)    -- Green for active item transmog
             end
         else
             if self.activeBorder then
@@ -1377,6 +1685,11 @@ local function CreateSlotButton(parent, slotName)
             local slotId = SLOT_NAME_TO_EQUIP_SLOT[self.slotName]
             if activeTransmogs[slotId] then
                 RemoveTransmog(self.slotName)
+                PlaySound("igMainMenuOptionCheckBoxOn")
+            end
+            -- Also check for enchant transmog to remove
+            if activeEnchantTransmogs[slotId] and ENCHANT_ELIGIBLE_SLOTS[self.slotName] then
+                RemoveEnchantTransmog(self.slotName)
                 PlaySound("igMainMenuOptionCheckBoxOn")
             end
             return
@@ -1943,11 +2256,11 @@ local function CreateSearchBar(parent, previewGrid)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:SetText(L["SEARCH_TOOLTIP"] or "Search Options:")
         GameTooltip:AddLine(L["SEARCH_NAME"] and 
-            "• " .. L["SEARCH_NAME"] .. L["SEARCH_NAME_DESCRIPTION"], 1, 1, 1)
+            "â€¢ " .. L["SEARCH_NAME"] .. L["SEARCH_NAME_DESCRIPTION"], 1, 1, 1)
         GameTooltip:AddLine(L["SEARCH_ID"] and 
-            "• " .. L["SEARCH_ID"] .. L["SEARCH_ID_DESCRIPTION"], 1, 1, 1)
+            "â€¢ " .. L["SEARCH_ID"] .. L["SEARCH_ID_DESCRIPTION"], 1, 1, 1)
         GameTooltip:AddLine(L["SEARCH_DISPLAYID"] and 
-            "• " .. L["SEARCH_DISPLAYID"] .. L["SEARCH_DISPLAYID_DESCRIPTION"], 1, 1, 1)
+            "â€¢ " .. L["SEARCH_DISPLAYID"] .. L["SEARCH_DISPLAYID_DESCRIPTION"], 1, 1, 1)
         GameTooltip:AddLine(" ")
         if searchActive then
             GameTooltip:AddLine("Active search: " .. lastSearchText, 0, 1, 0)
@@ -2020,6 +2333,101 @@ local function CreateMainFrame()
         btn:SetPoint("TOPLEFT", 0, -math.floor((i - 1) * slotSpacing))
         slotButtons[slotName] = btn
     end
+    
+    -- ============================================================================
+    -- Mode Toggle Button (Item/Enchant)
+    -- ============================================================================
+    modeToggleButton = CreateFrame("Button", "$parentModeToggle", frame, "ItemButtonTemplate")
+    modeToggleButton:SetSize(36, 36)
+    modeToggleButton:SetPoint("TOP", slotContainer, "BOTTOM", 4, -20)
+    
+    local modeNormal = modeToggleButton:GetNormalTexture()
+    if modeNormal then modeNormal:SetTexture(nil) end
+    
+    modeToggleButton.BG = modeToggleButton:CreateTexture(nil, "BACKGROUND")
+    modeToggleButton.BG:SetTexture("Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\uiframediamondmetalclassicborder")
+    modeToggleButton.BG:SetTexCoord(0, 0.5625, 0, 0.5625)
+    modeToggleButton.BG:SetSize(58, 58)
+    modeToggleButton.BG:SetPoint("CENTER")
+    
+    modeToggleButton.Icon = modeToggleButton:CreateTexture(nil, "ARTWORK")
+    modeToggleButton.Icon:SetTexture("Interface\\Icons\\INV_Fabric_Silk_02")
+    modeToggleButton.Icon:SetSize(34, 34)
+    modeToggleButton.Icon:SetPoint("CENTER")
+    
+    modeToggleButton.Border = modeToggleButton:CreateTexture(nil, "OVERLAY")
+    modeToggleButton.Border:SetTexture("Interface\\CharacterFrame\\UI-Character-Slot-Border")
+    modeToggleButton.Border:SetAllPoints()
+    modeToggleButton.Border:SetDrawLayer("OVERLAY", 6)
+    
+    modeToggleButton.ModeText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    modeToggleButton.ModeText:SetPoint("TOP", modeToggleButton, "BOTTOM", 0, -2)
+    modeToggleButton.ModeText:SetText(L["MODE_ITEM"] or "Items")
+    
+    local function UpdateModeUI()
+        if currentTransmogMode == TRANSMOG_MODE_ITEM then
+            modeToggleButton.Icon:SetTexture("Interface\\Icons\\INV_Fabric_Silk_02")
+            modeToggleButton.ModeText:SetText(L["MODE_ITEM"] or "Items")
+            modeToggleButton.ModeText:SetTextColor(1, 1, 1)
+            if subclassDropdown then subclassDropdown:Show() end
+            if qualityDropdown then qualityDropdown:Show() end
+            if frame.searchBar then frame.searchBar:Show() end
+            for slotName, btn in pairs(slotButtons) do
+                btn:SetAlpha(1.0)
+                btn:Enable()
+            end
+        else
+            modeToggleButton.Icon:SetTexture("Interface\\Icons\\Trade_Engraving")
+            modeToggleButton.ModeText:SetText(L["MODE_ENCHANT"] or "Enchants")
+            modeToggleButton.ModeText:SetTextColor(0.5, 0.8, 1)
+            if subclassDropdown then subclassDropdown:Hide() end
+            if qualityDropdown then qualityDropdown:Hide() end
+            if frame.searchBar then frame.searchBar:Hide() end
+            for slotName, btn in pairs(slotButtons) do
+                if ENCHANT_ELIGIBLE_SLOTS[slotName] then
+                    btn:SetAlpha(1.0)
+                    btn:Enable()
+                else
+                    btn:SetAlpha(0.3)
+                    btn:Disable()
+                end
+            end
+            if not ENCHANT_ELIGIBLE_SLOTS[currentSlot] then
+                currentSlot = "MainHand"
+                for name, btn in pairs(slotButtons) do
+                    btn:SetChecked(name == currentSlot)
+                end
+            end
+        end
+        UpdatePreviewGrid()
+    end
+    
+    modeToggleButton:SetScript("OnClick", function()
+        if currentTransmogMode == TRANSMOG_MODE_ITEM then
+            currentTransmogMode = TRANSMOG_MODE_ENCHANT
+        else
+            currentTransmogMode = TRANSMOG_MODE_ITEM
+        end
+        UpdateModeUI()
+        PlaySound("igMainMenuOptionCheckBoxOn")
+    end)
+    
+    modeToggleButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if currentTransmogMode == TRANSMOG_MODE_ITEM then
+            GameTooltip:SetText(L["MODE_TOGGLE_TOOLTIP_ITEM"] or "Item Transmog Mode")
+            GameTooltip:AddLine(L["MODE_TOGGLE_DESC_ITEM"] or "Click to switch to Enchant Mode", 1, 1, 1)
+        else
+            GameTooltip:SetText(L["MODE_TOGGLE_TOOLTIP_ENCHANT"] or "Enchant Transmog Mode")
+            GameTooltip:AddLine(L["MODE_TOGGLE_DESC_ENCHANT"] or "Click to switch to Item Mode", 1, 1, 1)
+            GameTooltip:AddLine(L["MODE_ENCHANT_NOTE"] or "Only weapons show enchant visuals", 0.7, 0.7, 0.7)
+        end
+        GameTooltip:Show()
+    end)
+    modeToggleButton:SetScript("OnLeave", GameTooltip_Hide)
+    
+    frame.modeToggleButton = modeToggleButton
+    frame.UpdateModeUI = UpdateModeUI
     
     dressingRoom = CreateDressingRoom(frame)
     dressingRoom:SetPoint("TOPLEFT", 55, -55)
@@ -2232,6 +2640,8 @@ initFrame:SetScript("OnEvent", function(self, event)
             RequestCollectionFromServer()
             RequestActiveTransmogsFromServer()
             RequestSetsFromServer()
+            RequestEnchantCollectionFromServer()
+            RequestActiveEnchantTransmogsFromServer()
         end)
         
         mainFrame = CreateMainFrame()

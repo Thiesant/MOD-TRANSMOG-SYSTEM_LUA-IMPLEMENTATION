@@ -130,3 +130,33 @@ L["SET_SAVE_TOOLTIP"] = "Save selected items as a new set"
 L["SET_DELETE_TOOLTIP"] = "Delete the selected set"
 L["SET_APPLY_TOOLTIP"] = "Apply this set as active transmog\n(Only collected appearances will be applied)"
 L["APPLY_HINT"] = "Select an appearance and Shift+Click to apply"
+
+-- Mode Toggle
+L["MODE_ITEM"] = "Items"
+L["MODE_ENCHANT"] = "Enchants"
+L["MODE_TOGGLE_TOOLTIP_ITEM"] = "Item Transmog Mode"
+L["MODE_TOGGLE_TOOLTIP_ENCHANT"] = "Enchant Transmog Mode"
+L["MODE_TOGGLE_DESC_ITEM"] = "Click to switch to Enchant Transmog Mode"
+L["MODE_TOGGLE_DESC_ENCHANT"] = "Click to switch to Item Transmog Mode"
+L["MODE_ENCHANT_NOTE"] = "Only weapon slots can have enchant visuals"
+L["ENCHANT_MODE"] = "Enchant Mode"
+
+-- Enchantment Strings
+L["ENCHANT_CATEGORY"] = "Category"
+L["ENCHANT_ACTIVE"] = "|cff00ff00Currently Active|r"
+L["CLEAR_ENCHANT"] = "|cffff0000Right-click to remove|r"
+L["APPLY_ENCHANT_SHIFT_CLICK"] = "|cff00ff00Shift+Click:|r Apply enchant visual"
+L["ENCHANT_APPLIED"] = "Enchant visual applied!"
+L["ENCHANT_REMOVED"] = "Enchant visual removed!"
+L["ENCHANT_COLLECTION_LOADED"] = "Enchant collection loaded: %d visuals"
+
+-- Enchant Categories
+L["Runeforge"] = "Runeforge"
+L["Fire"] = "Fire"
+L["Frost"] = "Frost"
+L["Nature"] = "Nature"
+L["Arcane"] = "Arcane"
+L["Holy"] = "Holy"
+L["Shadow"] = "Shadow"
+L["Physical"] = "Physical"
+L["Shaman"] = "Shaman"

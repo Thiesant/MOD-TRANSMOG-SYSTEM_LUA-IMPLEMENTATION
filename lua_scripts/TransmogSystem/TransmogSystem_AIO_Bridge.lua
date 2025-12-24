@@ -1,5 +1,5 @@
 -- [Author : Thiesant] This script is free, if you bought it you got scammed.
--- v0.2
+-- v0.3
     -- ============================================================================
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -463,9 +463,26 @@ if ENABLE_AIO_BRIDGE then
         [18] = 320,  -- Tabard
     }
     
+    -- Slots eligible for enchantment visual transmog (weapons only show enchants)
+    local ENCHANT_ELIGIBLE_SLOTS = {
+        [15] = true,  -- Main Hand
+        [16] = true,  -- Off Hand
+        -- Ranged (17) does NOT show enchant visuals in WotLK
+    }
+    
     -- Get the visual field for an equipment slot
     local function GetVisualField(equipSlot)
         return PLAYER_VISIBLE_ITEM_FIELDS[equipSlot]
+    end
+    
+    -- Get the enchantment visual field for an equipment slot
+    local function GetEnchantmentVisualField(equipSlot)
+        return PLAYER_VISIBLE_ENCHANTMENT_FIELDS[equipSlot]
+    end
+    
+    -- Check if slot is eligible for enchant transmog
+    local function IsEnchantEligibleSlot(slot)
+        return ENCHANT_ELIGIBLE_SLOTS[slot] == true
     end
 	
     local function ApplyTransmogVisual(player, slot, fakeItemId)
@@ -526,6 +543,179 @@ if ENABLE_AIO_BRIDGE then
         player:SetUInt32Value(field, originalItemId)
         
        return true
+    end
+    
+    -- ============================================================================
+    -- Enchantment Visual Transmog Functions
+    -- ============================================================================
+    
+    local function ApplyEnchantVisual(player, slot, visualId)
+        if not player or not IsEnchantEligibleSlot(slot) then
+            print("[Transmog Debug] ApplyEnchantVisual failed: invalid player or slot " .. tostring(slot))
+            return false
+        end
+        
+        -- Check if player has an item equipped in this slot
+        local item = player:GetItemByPos(255, slot)
+        if not item then
+            print("[Transmog Debug] ApplyEnchantVisual failed: no item in slot " .. tostring(slot))
+            return false
+        end
+        
+        -- Get the correct enchantment visual field for this slot
+        local field = GetEnchantmentVisualField(slot)
+        if not field then
+            print("[Transmog Debug] ApplyEnchantVisual failed: no enchant field for slot " .. tostring(slot))
+            return false
+        end
+        
+        print(string.format("[Transmog Debug] Applying enchant visual: slot=%d, field=%d, visualId=%d", 
+            slot, field, visualId))
+        
+        -- Apply the enchant visual using SetUInt32Value
+        player:SetUInt32Value(field, visualId)
+        
+        return true
+    end
+    
+    local function RemoveEnchantVisual(player, slot)
+        if not player or not IsEnchantEligibleSlot(slot) then
+            return false
+        end
+        
+        -- Get equipped item to get its real enchant
+        local item = player:GetItemByPos(255, slot)
+        if not item then
+            return true  -- No item, nothing to restore
+        end
+        
+        -- Get the correct enchantment visual field for this slot
+        local field = GetEnchantmentVisualField(slot)
+        if not field then
+            return false
+        end
+        
+        -- Get the original enchant from the item (if any)
+        local originalEnchant = item:GetEnchantmentId(0)  -- PERM_ENCHANTMENT_SLOT = 0
+        player:SetUInt32Value(field, originalEnchant or 0)
+        
+        return true
+    end
+    
+    -- Get active enchant transmogs from database (returns enchant_id, not visual)
+    local function GetActiveEnchantTransmogs(guid)
+        local transmogs = {}
+        local query = CharDBQuery(string.format(
+            "SELECT slot, enchant_id FROM mod_transmog_system_active WHERE guid = %d AND enchant_id > 0",
+            guid
+        ))
+        
+        if query then
+            repeat
+                local slot = query:GetUInt32(0)
+                local enchantId = query:GetUInt32(1)
+                transmogs[slot] = enchantId
+            until not query:NextRow()
+        end
+        
+        return transmogs
+    end
+    
+    -- Save enchant transmog to database
+    local function SaveEnchantTransmog(guid, slot, enchantId)
+        -- Check if there's an existing entry for this slot
+        local existingQuery = CharDBQuery(string.format(
+            "SELECT item_id FROM mod_transmog_system_active WHERE guid = %d AND slot = %d",
+            guid, slot
+        ))
+        
+        if existingQuery then
+            -- Update existing entry
+            CharDBExecute(string.format(
+                "UPDATE mod_transmog_system_active SET enchant_id = %d WHERE guid = %d AND slot = %d",
+                enchantId, guid, slot
+            ))
+        else
+            -- Insert new entry (with item_id = 0 since this is enchant-only)
+            CharDBExecute(string.format(
+                "INSERT INTO mod_transmog_system_active (guid, slot, item_id, enchant_id) VALUES (%d, %d, 0, %d)",
+                guid, slot, enchantId
+            ))
+        end
+    end
+    
+    -- Remove enchant transmog from database
+    local function RemoveEnchantTransmogFromDB(guid, slot)
+        CharDBExecute(string.format(
+            "UPDATE mod_transmog_system_active SET enchant_id = 0 WHERE guid = %d AND slot = %d",
+            guid, slot
+        ))
+    end
+    
+    -- Get enchant collection from database
+    -- Get all available enchant visuals from reference table
+    -- Returns array of {id, itemVisual, name, icon}
+    local function GetAllEnchantVisuals()
+        local enchants = {}
+        local query = CharDBQuery(
+            "SELECT id, item_visual, name_enUS, icon FROM mod_transmog_system_enchantment ORDER BY id"
+        )
+        
+        if query then
+            repeat
+                table.insert(enchants, {
+                    id = query:GetUInt32(0),
+                    itemVisual = query:GetUInt32(1),
+                    name = query:GetString(2),
+                    icon = query:GetString(3)
+                })
+            until not query:NextRow()
+        end
+        
+        return enchants
+    end
+    
+    -- Get enchant info by ID
+    local function GetEnchantById(enchantId)
+        local query = CharDBQuery(string.format(
+            "SELECT id, item_visual, name_enUS, icon FROM mod_transmog_system_enchantment WHERE id = %d",
+            enchantId
+        ))
+        
+        if query then
+            return {
+                id = query:GetUInt32(0),
+                itemVisual = query:GetUInt32(1),
+                name = query:GetString(2),
+                icon = query:GetString(3)
+            }
+        end
+        return nil
+    end
+    
+    -- Apply all enchant transmogs for a player on login
+    local function ApplyAllEnchantTransmogs(player)
+        if not player then return end
+        
+        local guid = player:GetGUIDLow()
+        local enchantTransmogs = GetActiveEnchantTransmogs(guid)
+        
+        local appliedCount = 0
+        for slot, enchantId in pairs(enchantTransmogs) do
+            if IsEnchantEligibleSlot(slot) then
+                local equippedItem = player:GetItemByPos(255, slot)
+                if equippedItem then
+                    -- Use enchant ID directly instead of itemVisual
+                    if ApplyEnchantVisual(player, slot, enchantId) then
+                        appliedCount = appliedCount + 1
+                    end
+                end
+            end
+        end
+        
+        if appliedCount > 0 then
+            print(string.format("[Transmog] Applied %d enchant transmogs for %s", appliedCount, player:GetName()))
+        end
     end
     
     local function ApplyAllTransmogs(player)
@@ -910,6 +1100,98 @@ if ENABLE_AIO_BRIDGE then
         end
         
         AIO.Msg():Add("TRANSMOG", "AppearanceCheckBulk", results):Send(player)
+    end
+    
+    -- ============================================================================
+    -- Enchantment Transmog - AIO Handlers
+    -- ============================================================================
+    
+    -- Request all available enchant visuals (sent from server database)
+    TRANSMOG_HANDLER.RequestEnchantCollection = function(player)
+        local enchants = GetAllEnchantVisuals()
+        
+        -- Send in chunks
+        local chunkSize = 20
+        local totalChunks = math.ceil(#enchants / chunkSize)
+        if totalChunks == 0 then totalChunks = 1 end
+        
+        for chunk = 1, totalChunks do
+            local startIdx = (chunk - 1) * chunkSize + 1
+            local endIdx = math.min(chunk * chunkSize, #enchants)
+            local chunkEnchants = {}
+            
+            for i = startIdx, endIdx do
+                table.insert(chunkEnchants, enchants[i])
+            end
+            
+            AIO.Msg():Add("TRANSMOG", "EnchantCollectionData", {
+                chunk = chunk,
+                totalChunks = totalChunks,
+                enchants = chunkEnchants
+            }):Send(player)
+        end
+    end
+    
+    -- Request active enchant transmogs
+    TRANSMOG_HANDLER.RequestActiveEnchantTransmogs = function(player)
+        local guid = player:GetGUIDLow()
+        local enchantTransmogs = GetActiveEnchantTransmogs(guid)
+        
+        AIO.Msg():Add("TRANSMOG", "ActiveEnchantTransmogs", enchantTransmogs):Send(player)
+    end
+    
+    -- Apply enchant transmog
+    TRANSMOG_HANDLER.ApplyEnchantTransmog = function(player, slotId, enchantId)
+        if not slotId or not enchantId then
+            AIO.Msg():Add("TRANSMOG", "Error", "INVALID_SLOT_OR_ENCHANT"):Send(player)
+            return
+        end
+        
+        -- Validate slot is enchant-eligible
+        if not IsEnchantEligibleSlot(slotId) then
+            AIO.Msg():Add("TRANSMOG", "Error", "SLOT_NOT_ENCHANT_ELIGIBLE"):Send(player)
+            return
+        end
+        
+        -- Validate enchant exists in database
+        local enchantInfo = GetEnchantById(enchantId)
+        if not enchantInfo then
+            AIO.Msg():Add("TRANSMOG", "Error", "INVALID_ENCHANT_ID"):Send(player)
+            return
+        end
+        
+        local guid = player:GetGUIDLow()
+        
+        -- Save to database (stores enchant_id)
+        SaveEnchantTransmog(guid, slotId, enchantId)
+        
+        -- Check if player has an item equipped in the slot
+        local equippedItem = player:GetItemByPos(255, slotId)
+        if equippedItem then
+            -- Apply visual using the enchant ID directly
+            ApplyEnchantVisual(player, slotId, enchantId)
+        end
+        
+        -- Report success
+        AIO.Msg():Add("TRANSMOG", "EnchantApplied", { slot = slotId, visualId = enchantId }):Send(player)
+    end
+    
+    -- Remove enchant transmog
+    TRANSMOG_HANDLER.RemoveEnchantTransmog = function(player, slotId)
+        if not slotId or not IsEnchantEligibleSlot(slotId) then
+            AIO.Msg():Add("TRANSMOG", "Error", "INVALID_SLOT"):Send(player)
+            return
+        end
+        
+        local guid = player:GetGUIDLow()
+        
+        -- Remove from database
+        RemoveEnchantTransmogFromDB(guid, slotId)
+        
+        -- Remove visual
+        RemoveEnchantVisual(player, slotId)
+        
+        AIO.Msg():Add("TRANSMOG", "EnchantRemoved", slotId):Send(player)
     end
     
     -- ============================================================================
@@ -1307,6 +1589,8 @@ if ENABLE_AIO_BRIDGE then
         
         if ENABLE_APPLY_ALL_TRANSMOGS then
             ApplyAllTransmogs(player)
+            -- Also apply enchant transmogs
+            ApplyAllEnchantTransmogs(player)
         end
     end
 	
@@ -1350,6 +1634,16 @@ if ENABLE_AIO_BRIDGE then
 		    if ENABLE_TRANSMOG_APPLY_TRANSMOG_VISUAL then
                 ApplyTransmogVisual(player, equipSlot, activeItemId)
 			end
+        end
+        
+        -- Also apply enchant transmog if one is active for this slot
+        if IsEnchantEligibleSlot(equipSlot) then
+            local enchantTransmogs = GetActiveEnchantTransmogs(guid)
+            local activeEnchantId = enchantTransmogs[equipSlot]
+            if activeEnchantId then
+                -- Use enchant ID directly
+                ApplyEnchantVisual(player, equipSlot, activeEnchantId)
+            end
         end
     end
     
