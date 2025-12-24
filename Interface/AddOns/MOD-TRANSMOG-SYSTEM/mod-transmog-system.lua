@@ -2338,8 +2338,8 @@ local function CreateMainFrame()
     -- Mode Toggle Button (Item/Enchant)
     -- ============================================================================
     modeToggleButton = CreateFrame("Button", "$parentModeToggle", frame, "ItemButtonTemplate")
-    modeToggleButton:SetSize(36, 36)
-    modeToggleButton:SetPoint("TOP", slotContainer, "BOTTOM", 4, -20)
+    modeToggleButton:SetSize(18, 18)
+    modeToggleButton:SetPoint("TOP", slotContainer, "BOTTOM", 4, -10)
     
     local modeNormal = modeToggleButton:GetNormalTexture()
     if modeNormal then modeNormal:SetTexture(nil) end
@@ -2347,12 +2347,12 @@ local function CreateMainFrame()
     modeToggleButton.BG = modeToggleButton:CreateTexture(nil, "BACKGROUND")
     modeToggleButton.BG:SetTexture("Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\uiframediamondmetalclassicborder")
     modeToggleButton.BG:SetTexCoord(0, 0.5625, 0, 0.5625)
-    modeToggleButton.BG:SetSize(58, 58)
+    modeToggleButton.BG:SetSize(29, 29)
     modeToggleButton.BG:SetPoint("CENTER")
     
     modeToggleButton.Icon = modeToggleButton:CreateTexture(nil, "ARTWORK")
     modeToggleButton.Icon:SetTexture("Interface\\Icons\\INV_Fabric_Silk_02")
-    modeToggleButton.Icon:SetSize(34, 34)
+    modeToggleButton.Icon:SetSize(17, 17)
     modeToggleButton.Icon:SetPoint("CENTER")
     
     modeToggleButton.Border = modeToggleButton:CreateTexture(nil, "OVERLAY")
