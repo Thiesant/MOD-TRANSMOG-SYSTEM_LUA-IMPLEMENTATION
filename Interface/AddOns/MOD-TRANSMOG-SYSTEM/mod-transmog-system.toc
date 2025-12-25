@@ -1,7 +1,7 @@
 ## Interface: 30300
 ## Title: MOD-TRANSMOG-SYSTEM
 ## Author: Thiesant
-## Version: 0.3
+## Version: 0.4
 ## SavedVariables: TransmogDB
 
 # Localization

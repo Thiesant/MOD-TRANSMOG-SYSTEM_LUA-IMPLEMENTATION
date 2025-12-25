@@ -1,5 +1,5 @@
 -- [Author : Thiesant] This script is free, if you bought it you got scammed.
--- v0.3
+-- v0.4
     -- ============================================================================
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -101,6 +101,22 @@ local ALLOWED_QUALITIES = {
     [6] = true,
 }
 
+
+-- ──────────────────────────────── ITEM BLACKLIST ────────────────────────────────
+
+-- Items in this list will be excluded from:
+-- - Transmog collection (won't be added when looted/equipped)
+-- - Search results
+-- - Grid display (even if somehow collected)
+-- Format: [itemId] = true
+local ITEM_BLACKLIST = {
+--    [17182] = true, -- Sulfuras, Hand of Ragnaros
+}
+
+-- Helper function to check if item is blacklisted
+local function IsItemBlacklisted(itemId)
+    return ITEM_BLACKLIST[itemId] == true
+end
 	
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
 -- ║                                    SCRIPT                                    ║
@@ -263,7 +279,11 @@ if ENABLE_AIO_BRIDGE then
         local items = {}
         if query then
             repeat
-                table.insert(items, query:GetUInt32(0))
+                local itemId = query:GetUInt32(0)
+                -- Skip blacklisted items
+                if not IsItemBlacklisted(itemId) then
+                    table.insert(items, itemId)
+                end
             until not query:NextRow()
         end
         return items
@@ -344,7 +364,211 @@ if ENABLE_AIO_BRIDGE then
         local items = {}
         if query then
             repeat
-                table.insert(items, query:GetUInt32(0))
+                local itemId = query:GetUInt32(0)
+                -- Skip blacklisted items
+                if not IsItemBlacklisted(itemId) then
+                    table.insert(items, itemId)
+                end
+            until not query:NextRow()
+        end
+        
+        return items
+    end
+
+    -- NEW: Get ALL items for slot (both collected and uncollected) with collected status
+    -- Returns array of {itemId, collected} sorted by collected first
+    -- FIXED: Queries collected items first (all of them), then adds uncollected items
+    local function GetAllItemsForSlotFiltered(accountId, slotId, subclassName, quality)
+        local invTypes = SLOT_INV_TYPES[slotId]
+        if not invTypes then return {} end
+        
+        local invTypeStr = table.concat(invTypes, ",")
+        
+        -- Build base WHERE conditions for item_template
+        local baseConditions = {}
+        table.insert(baseConditions, string.format("InventoryType IN (%s)", invTypeStr))
+        table.insert(baseConditions, "displayid > 0")  -- Must have a visual
+        
+        -- Subclass filter
+        if subclassName and subclassName ~= "" and subclassName ~= "All" then
+            local itemClass, itemSubclass = GetSubclassId(subclassName)
+            if itemClass and itemSubclass then
+                table.insert(baseConditions, string.format("class = %d", itemClass))
+                table.insert(baseConditions, string.format("subclass = %d", itemSubclass))
+            end
+        end
+        
+        -- Quality filter
+        if quality and quality ~= "" and quality ~= "All" then
+            local qualityMap = {
+                ["Poor"] = 0,
+                ["Common"] = 1,
+                ["Uncommon"] = 2,
+                ["Rare"] = 3,
+                ["Epic"] = 4,
+                ["Legendary"] = 5,
+                ["Heirloom"] = 6,
+            }
+            local qualityId = qualityMap[quality]
+            if qualityId then
+                table.insert(baseConditions, string.format("Quality = %d", qualityId))
+            end
+        end
+        
+        -- Only include allowed qualities
+        local qualityList = {}
+        for q, allowed in pairs(ALLOWED_QUALITIES) do
+            if allowed then
+                table.insert(qualityList, q)
+            end
+        end
+        table.insert(baseConditions, string.format("Quality IN (%s)", table.concat(qualityList, ",")))
+        
+        local baseWhereClause = table.concat(baseConditions, " AND ")
+        
+        -- STEP 1: Get player's collected item IDs from CharDB
+        local collectedIdsList = {}
+        local collectedIdsSet = {}
+        
+        local collectionQuery = CharDBQuery(string.format(
+            "SELECT item_id FROM mod_transmog_system_collection WHERE account_id = %d",
+            accountId
+        ))
+        
+        if collectionQuery then
+            repeat
+                local itemId = collectionQuery:GetUInt32(0)
+                table.insert(collectedIdsList, itemId)
+                collectedIdsSet[itemId] = true
+            until not collectionQuery:NextRow()
+        end
+        
+        -- STEP 2: Get collected items that match slot/filters from WorldDB
+        local collectedItems = {}
+        
+        if #collectedIdsList > 0 then
+            local collectedIdsStr = table.concat(collectedIdsList, ",")
+            local collectedQuery = WorldDBQuery(string.format(
+                "SELECT entry FROM item_template WHERE entry IN (%s) AND %s",
+                collectedIdsStr, baseWhereClause
+            ))
+            
+            if collectedQuery then
+                repeat
+                    local itemId = collectedQuery:GetUInt32(0)
+                    table.insert(collectedItems, { itemId = itemId, collected = true })
+                until not collectedQuery:NextRow()
+            end
+        end
+        
+        -- STEP 3: Get uncollected items (no limit)
+        local uncollectedItems = {}
+        
+        local uncollectedQuery = WorldDBQuery(string.format(
+            "SELECT entry FROM item_template WHERE %s ORDER BY entry",
+            baseWhereClause
+        ))
+        
+        if uncollectedQuery then
+            repeat
+                local itemId = uncollectedQuery:GetUInt32(0)
+                -- Only add if NOT in collected set and NOT blacklisted
+                if not collectedIdsSet[itemId] and not IsItemBlacklisted(itemId) then
+                    table.insert(uncollectedItems, { itemId = itemId, collected = false })
+                end
+            until not uncollectedQuery:NextRow()
+        end
+        
+        -- Combine: collected first, then uncollected
+        local result = {}
+        for _, item in ipairs(collectedItems) do
+            -- Filter out blacklisted items from collected as well
+            if not IsItemBlacklisted(item.itemId) then
+                table.insert(result, item)
+            end
+        end
+        for _, item in ipairs(uncollectedItems) do
+            table.insert(result, item)
+        end
+        
+        return result
+    end
+    
+    -- NEW: Get only UNCOLLECTED items for slot
+    -- Returns array of {itemId, collected=false}
+    local function GetUncollectedItemsForSlotFiltered(accountId, slotId, subclassName, quality)
+        local invTypes = SLOT_INV_TYPES[slotId]
+        if not invTypes then return {} end
+        
+        local invTypeStr = table.concat(invTypes, ",")
+        
+        -- Get player's collection
+        local collectionQuery = CharDBQuery(string.format(
+            "SELECT item_id FROM mod_transmog_system_collection WHERE account_id = %d",
+            accountId
+        ))
+        
+        local collectedIds = {}
+        if collectionQuery then
+            repeat
+                collectedIds[collectionQuery:GetUInt32(0)] = true
+            until not collectionQuery:NextRow()
+        end
+        
+        -- Build WHERE clause for item_template
+        local whereConditions = {}
+        table.insert(whereConditions, string.format("InventoryType IN (%s)", invTypeStr))
+        table.insert(whereConditions, "displayid > 0")  -- Must have a visual
+        
+        -- Subclass filter
+        if subclassName and subclassName ~= "" and subclassName ~= "All" then
+            local itemClass, itemSubclass = GetSubclassId(subclassName)
+            if itemClass and itemSubclass then
+                table.insert(whereConditions, string.format("class = %d", itemClass))
+                table.insert(whereConditions, string.format("subclass = %d", itemSubclass))
+            end
+        end
+        
+        -- Quality filter
+        if quality and quality ~= "" and quality ~= "All" then
+            local qualityMap = {
+                ["Poor"] = 0,
+                ["Common"] = 1,
+                ["Uncommon"] = 2,
+                ["Rare"] = 3,
+                ["Epic"] = 4,
+                ["Legendary"] = 5,
+                ["Heirloom"] = 6,
+            }
+            local qualityId = qualityMap[quality]
+            if qualityId then
+                table.insert(whereConditions, string.format("Quality = %d", qualityId))
+            end
+        end
+        
+        -- Only include allowed qualities
+        local qualityList = {}
+        for q, allowed in pairs(ALLOWED_QUALITIES) do
+            if allowed then
+                table.insert(qualityList, q)
+            end
+        end
+        table.insert(whereConditions, string.format("Quality IN (%s)", table.concat(qualityList, ",")))
+        
+        local whereClause = table.concat(whereConditions, " AND ")
+        local query = WorldDBQuery(string.format(
+            "SELECT entry FROM item_template WHERE %s ORDER BY entry",
+            whereClause
+        ))
+        
+        local items = {}
+        if query then
+            repeat
+                local itemId = query:GetUInt32(0)
+                -- Only add if NOT in collection and NOT blacklisted
+                if not collectedIds[itemId] and not IsItemBlacklisted(itemId) then
+                    table.insert(items, { itemId = itemId, collected = false })
+                end
             until not query:NextRow()
         end
         
@@ -794,6 +1018,11 @@ if ENABLE_AIO_BRIDGE then
     local function AddToCollection(player, itemId, notifyPlayer)
         if not player or not itemId then return false end
         
+        -- Check blacklist first
+        if IsItemBlacklisted(itemId) then
+            return false
+        end
+        
         if not CanTransmogItem(itemId) then
             return false
         end
@@ -860,7 +1089,7 @@ if ENABLE_AIO_BRIDGE then
         end
     end
 
-    -- Search items in collection
+    -- Search items - searches ALL items and includes collected status
     TRANSMOG_HANDLER.SearchItems = function(player, slotId, searchType, searchText, locale)
         if not searchType or not searchText then
             print("[Transmog Debug] SearchItems received invalid parameters")
@@ -885,92 +1114,157 @@ if ENABLE_AIO_BRIDGE then
         
         local accountId = player:GetAccountId()
         
-        -- First get all items for this account
+        -- Get player's collected item IDs
         local collectionQuery = CharDBQuery(string.format(
             "SELECT item_id FROM mod_transmog_system_collection WHERE account_id = %d",
             accountId
         ))
         
-        if not collectionQuery then 
-            AIO.Msg():Add("TRANSMOG", "SearchResults", {allResults = {}, slotResults = {}}):Send(player)
-            return 
+        local collectedIdsList = {}
+        local collectedIdsSet = {}
+        if collectionQuery then
+            repeat
+                local itemId = collectionQuery:GetUInt32(0)
+                table.insert(collectedIdsList, itemId)
+                collectedIdsSet[itemId] = true
+            until not collectionQuery:NextRow()
         end
         
-        -- Build list of item IDs
-        local itemIds = {}
-        repeat
-            table.insert(itemIds, collectionQuery:GetUInt32(0))
-        until not collectionQuery:NextRow()
-        
-        if #itemIds == 0 then
-            AIO.Msg():Add("TRANSMOG", "SearchResults", {allResults = {}, slotResults = {}}):Send(player)
-            return
+        -- Build quality filter for allowed qualities
+        local qualityList = {}
+        for q, allowed in pairs(ALLOWED_QUALITIES) do
+            if allowed then
+                table.insert(qualityList, q)
+            end
         end
+        local qualityFilter = string.format("Quality IN (%s)", table.concat(qualityList, ","))
         
-        local itemIdStr = table.concat(itemIds, ",")
-        local query = nil
+        -- Build base WHERE conditions
+        local baseConditions = {}
+        table.insert(baseConditions, "displayid > 0")  -- Must have a visual
+        table.insert(baseConditions, qualityFilter)
         
-        -- Build WHERE clause dynamically
-        local whereConditions = {}
-        table.insert(whereConditions, string.format("entry IN (%s)", itemIdStr))
+        -- Add search condition based on search type
+        local searchPattern = searchText:gsub("%%", "%%%"):gsub("_", "\\_")
+        searchPattern = "%" .. searchPattern .. "%"
         
-        -- Build query based on search type
         if searchType == "id" then
-            -- Search by exact item ID or partial ID
             local itemId = tonumber(searchText)
             if itemId then
-                -- Support partial ID search (e.g., searching "123" will find "12345")
-                table.insert(whereConditions, string.format("entry LIKE '%d%%'", itemId))
+                table.insert(baseConditions, string.format("entry LIKE '%d%%'", itemId))
             else
-                -- If not a number, search by name instead
                 searchType = "name"
             end
         end
         
         if searchType == "displayid" then
-            -- Search by display ID
             local displayId = tonumber(searchText)
             if displayId then
-                table.insert(whereConditions, string.format("displayid = %d", displayId))
+                table.insert(baseConditions, string.format("displayid = %d", displayId))
             end
         end
         
-        -- Default: search by name (case-insensitive, partial match)
-        if not query then
-            local searchPattern = searchText:gsub("%%", "%%%"):gsub("_", "\\_")
-            searchPattern = "%" .. searchPattern .. "%"
+        local baseWhereClause = table.concat(baseConditions, " AND ")
+        
+        -- Results storage
+        local collectedResults = {}
+        local slotResultsCollected = {}
+        
+        -- STEP 1: Search collected items first (all of them, no limit)
+        if #collectedIdsList > 0 then
+            local collectedIdsStr = table.concat(collectedIdsList, ",")
+            local query
             
+            if searchType == "name" then
+                query = WorldDBQuery(string.format(
+                    "SELECT it.entry, it.InventoryType FROM item_template it " ..
+                    "LEFT JOIN item_template_locale itl ON it.entry = itl.ID AND itl.locale = '%s' " ..
+                    "WHERE it.entry IN (%s) AND (it.name LIKE '%s' OR itl.Name LIKE '%s') AND %s",
+                    locale, collectedIdsStr, searchPattern, searchPattern, baseWhereClause
+                ))
+            else
+                query = WorldDBQuery(string.format(
+                    "SELECT entry, InventoryType FROM item_template WHERE entry IN (%s) AND %s",
+                    collectedIdsStr, baseWhereClause
+                ))
+            end
+            
+            if query then
+                repeat
+                    local itemId = query:GetUInt32(0)
+                    local invType = query:GetUInt32(1)
+                    local slot = INV_TYPE_TO_SLOT[invType]
+                    
+                    -- Skip blacklisted items
+                    if not IsItemBlacklisted(itemId) then
+                        table.insert(collectedResults, {itemId = itemId, collected = true})
+                        if slot then
+                            slotResultsCollected[slot] = slotResultsCollected[slot] or {}
+                            table.insert(slotResultsCollected[slot], {itemId = itemId, collected = true})
+                        end
+                    end
+                until not query:NextRow()
+            end
+        end
+        
+        -- STEP 2: Search uncollected items (no limit)
+        local uncollectedResults = {}
+        local slotResultsUncollected = {}
+        
+        local query
+        if searchType == "name" then
             query = WorldDBQuery(string.format(
                 "SELECT it.entry, it.InventoryType FROM item_template it " ..
                 "LEFT JOIN item_template_locale itl ON it.entry = itl.ID AND itl.locale = '%s' " ..
-                "WHERE (it.name LIKE '%s' OR itl.Name LIKE '%s' OR it.entry LIKE '%s') " ..
-                "AND %s",
-                locale, searchPattern, searchPattern, searchPattern, table.concat(whereConditions, " AND ")
+                "WHERE (it.name LIKE '%s' OR itl.Name LIKE '%s') AND %s",
+                locale, searchPattern, searchPattern, baseWhereClause
             ))
         else
-            -- For ID/displayid searches, we need to get inventory type too
             query = WorldDBQuery(string.format(
                 "SELECT entry, InventoryType FROM item_template WHERE %s",
-                table.concat(whereConditions, " AND ")
+                baseWhereClause
             ))
         end
-        
-        local allResults = {}
-        local slotResults = {}  -- Organize results by slot
         
         if query then
             repeat
                 local itemId = query:GetUInt32(0)
                 local invType = query:GetUInt32(1)
-                table.insert(allResults, itemId)
                 
-                -- Map inventory type to slot
-                local slot = INV_TYPE_TO_SLOT[invType]
-                if slot then
-                    slotResults[slot] = slotResults[slot] or {}
-                    table.insert(slotResults[slot], itemId)
+                -- Only add if NOT in collected set and NOT blacklisted
+                if not collectedIdsSet[itemId] and not IsItemBlacklisted(itemId) then
+                    local slot = INV_TYPE_TO_SLOT[invType]
+                    table.insert(uncollectedResults, {itemId = itemId, collected = false})
+                    if slot then
+                        slotResultsUncollected[slot] = slotResultsUncollected[slot] or {}
+                        table.insert(slotResultsUncollected[slot], {itemId = itemId, collected = false})
+                    end
                 end
             until not query:NextRow()
+        end
+        
+        -- Combine results: collected first, then uncollected
+        local allResults = {}
+        for _, item in ipairs(collectedResults) do
+            table.insert(allResults, item)
+        end
+        for _, item in ipairs(uncollectedResults) do
+            table.insert(allResults, item)
+        end
+        
+        -- Combine slot results
+        local slotResults = {}
+        for slot, items in pairs(slotResultsCollected) do
+            slotResults[slot] = slotResults[slot] or {}
+            for _, item in ipairs(items) do
+                table.insert(slotResults[slot], item)
+            end
+        end
+        for slot, items in pairs(slotResultsUncollected) do
+            slotResults[slot] = slotResults[slot] or {}
+            for _, item in ipairs(items) do
+                table.insert(slotResults[slot], item)
+            end
         end
         
         -- Send results back to client
@@ -988,15 +1282,32 @@ if ENABLE_AIO_BRIDGE then
         AIO.Msg():Add("TRANSMOG", "ActiveTransmogs", transmogs):Send(player)
     end
     
-    -- Request items for specific slot with subclass and quality filter
-    TRANSMOG_HANDLER.RequestSlotItems = function(player, slotId, subclass, quality)
+    -- Request items for specific slot with subclass, quality, and collection filter
+    -- collectionFilter: "All", "Collected", "Uncollected"
+    TRANSMOG_HANDLER.RequestSlotItems = function(player, slotId, subclass, quality, collectionFilter)
         if slotId == nil then
             print("[Transmog Server] RequestSlotItems received nil slotId")
             return
         end
         
         local accountId = player:GetAccountId()
-        local items = GetCollectionForSlotFiltered(accountId, slotId, subclass, quality)
+        collectionFilter = collectionFilter or "Collected"  -- Default to Collected
+        
+        local items = {}
+        
+        if collectionFilter == "All" then
+            -- Get all items for slot (collected and uncollected)
+            items = GetAllItemsForSlotFiltered(accountId, slotId, subclass, quality)
+        elseif collectionFilter == "Uncollected" then
+            -- Get only uncollected items for slot
+            items = GetUncollectedItemsForSlotFiltered(accountId, slotId, subclass, quality)
+        else
+            -- Default: Get only collected items (existing behavior)
+            local collectedItems = GetCollectionForSlotFiltered(accountId, slotId, subclass, quality)
+            for _, itemId in ipairs(collectedItems) do
+                table.insert(items, { itemId = itemId, collected = true })
+            end
+        end
         
         -- Send in chunks of 50
         local chunkSize = 50
@@ -1009,7 +1320,13 @@ if ENABLE_AIO_BRIDGE then
             local chunkItems = {}
             
             for i = startIdx, endIdx do
-                table.insert(chunkItems, { itemId = items[i] })
+                -- Items now include collected status
+                if type(items[i]) == "table" then
+                    table.insert(chunkItems, items[i])
+                else
+                    -- Backwards compatibility
+                    table.insert(chunkItems, { itemId = items[i], collected = true })
+                end
             end
             
             AIO.Msg():Add("TRANSMOG", "SlotItems", {

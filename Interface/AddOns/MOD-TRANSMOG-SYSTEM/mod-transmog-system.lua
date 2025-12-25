@@ -102,10 +102,20 @@ local SLOT_SUBCLASSES = {
 -- Default to "All" for all slots to show everything initially
 local slotSelectedSubclass = {}
 local slotSelectedQuality = {}
+local slotSelectedCollectionFilter = {}  -- NEW: Track collection filter per slot
 for slotName, subclasses in pairs(SLOT_SUBCLASSES) do
     slotSelectedSubclass[slotName] = "All"
 	slotSelectedQuality[slotName] = "All"
+    slotSelectedCollectionFilter[slotName] = "Collected"  -- NEW: Default to Collected
 end
+
+-- ============================================================================
+-- Collection Filter Definitions
+-- ============================================================================
+
+local COLLECTION_FILTER_OPTIONS = {
+    "All", "Collected", "Uncollected"
+}
 
 
 -- ============================================================================
@@ -144,6 +154,7 @@ local pendingTooltipChecks = {}
 local currentSlot = "Head"
 local currentSubclass = "All"  -- TO DO, Currently use "ALL" as default
 local currentQuality = "All"
+local currentCollectionFilter = "Collected"  -- NEW: Default to Collected
 local currentItems = {}
 local currentPage = 1
 local itemsPerPage = 15
@@ -189,7 +200,9 @@ local UpdatePreviewGrid
 local UpdateSlotButtonIcons
 local UpdateSetDropdown
 local UpdateEnchantGrid
+local UpdateCollectionFilterDropdown  -- NEW
 local modeToggleButton
+local collectionFilterDropdown  -- NEW: Reference to the dropdown
 
 -- ============================================================================
 -- C_Timer Polyfill
@@ -241,8 +254,9 @@ local function RequestActiveTransmogsFromServer()
     AIO.Msg():Add("TRANSMOG", "RequestActiveTransmogs"):Send()
 end
 
-local function RequestSlotItemsFromServer(slotId, subclass, quality)
-    AIO.Msg():Add("TRANSMOG", "RequestSlotItems", slotId, subclass, quality):Send()
+local function RequestSlotItemsFromServer(slotId, subclass, quality, collectionFilter)
+    -- NEW: Include collection filter in request (default to "Collected")
+    AIO.Msg():Add("TRANSMOG", "RequestSlotItems", slotId, subclass, quality, collectionFilter or "Collected"):Send()
 end
 
 -- ============================================================================
@@ -283,11 +297,55 @@ end
 
 local TRANSMOG_HANDLER = AIO.AddHandlers("TRANSMOG", {})
 
+-- Buffer for accumulating chunked search results
+local searchResultsBuffer = {}
+local searchSlotResultsBuffer = {}
+local searchTotalChunks = 0
+local searchReceivedChunks = 0
+
 TRANSMOG_HANDLER.SearchResults = function(player, data)
-    if data then
+    if not data then return end
+    
+    local chunk = data.chunk or 1
+    local totalChunks = data.totalChunks or 1
+    local totalResults = data.totalResults or #(data.allResults or {})
+    
+    -- Initialize buffers on first chunk
+    if chunk == 1 then
+        searchResultsBuffer = {}
+        searchSlotResultsBuffer = {}
+        searchTotalChunks = totalChunks
+        searchReceivedChunks = 0
+    end
+    
+    -- Accumulate results
+    if data.allResults then
+        for _, item in ipairs(data.allResults) do
+            table.insert(searchResultsBuffer, item)
+        end
+    end
+    
+    if data.slotResults then
+        for slot, items in pairs(data.slotResults) do
+            searchSlotResultsBuffer[slot] = searchSlotResultsBuffer[slot] or {}
+            for _, item in ipairs(items) do
+                table.insert(searchSlotResultsBuffer[slot], item)
+            end
+        end
+    end
+    
+    searchReceivedChunks = searchReceivedChunks + 1
+    
+    -- Update progress on main frame
+    if mainFrame and mainFrame.pageText and searchReceivedChunks < searchTotalChunks then
+        mainFrame.pageText:SetText(string.format("Loading search... %d/%d", searchReceivedChunks, searchTotalChunks))
+    end
+    
+    -- When all chunks received, finalize
+    if searchReceivedChunks >= searchTotalChunks then
         searchActive = true
-        searchResults = data.allResults or {}
-        searchSlotResults = data.slotResults or {}
+        searchResults = searchResultsBuffer
+        searchSlotResults = searchSlotResultsBuffer
         
         print(string.format("[Transmog] Search found %d total items", #searchResults))
         
@@ -331,6 +389,10 @@ TRANSMOG_HANDLER.SearchResults = function(player, data)
                 mainFrame.pageText:SetText("No results found")
             end
         end
+        
+        -- Clear buffers
+        searchResultsBuffer = {}
+        searchSlotResultsBuffer = {}
     end
 end
 
@@ -463,17 +525,36 @@ TRANSMOG_HANDLER.SlotItems = function(player, data)
     end
     
     -- Add items to buffer
+    -- NEW: Items now come with collected status from server
     if data.items then
         for _, item in ipairs(data.items) do
             if item and item.itemId then
-                table.insert(currentItems, item.itemId)
-                collectedAppearances[item.itemId] = true
+                -- Store as table with itemId and collected status
+                table.insert(currentItems, {
+                    itemId = item.itemId,
+                    collected = item.collected ~= false  -- Default to true for backwards compatibility
+                })
+                -- Also update local collection cache if collected
+                if item.collected ~= false then
+                    collectedAppearances[item.itemId] = true
+                end
             end
         end
     end
     
-    -- When all chunks received, update the display
+    -- When all chunks received, sort and update the display
     if data.chunk == data.totalChunks then
+        -- NEW: Sort items - collected first, then uncollected
+        table.sort(currentItems, function(a, b)
+            if a.collected and not b.collected then
+                return true
+            elseif not a.collected and b.collected then
+                return false
+            else
+                return a.itemId < b.itemId
+            end
+        end)
+        
         currentPage = 1
         UpdatePreviewGrid()
         
@@ -1140,13 +1221,20 @@ local function SetupItemModel(frame, slotName)
         frame.newIcon:Hide()
         if not isActive then
             frame:SetBackdropColor(0.15, 0.15, 0.15, 1)
+            frame:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
         end
+        -- Full opacity for collected items
+        model:SetAlpha(1.0)
     else
         frame.collectedIcon:Hide()
         frame.newIcon:Show()
         if not isActive then
-            frame:SetBackdropColor(0.2, 0.15, 0.1, 1)
+            -- NEW: Grey/desaturated styling for uncollected items
+            frame:SetBackdropColor(0.1, 0.1, 0.1, 1)
+            frame:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
         end
+        -- NEW: Reduced opacity for uncollected items (greyed out effect)
+        model:SetAlpha(0.5)
     end
     
     -- If this frame is selected but not active, ensure cyan border is shown
@@ -1156,8 +1244,19 @@ local function SetupItemModel(frame, slotName)
     end
 end
 
-local function UpdateItemFrame(frame, itemId, slotName)
+local function UpdateItemFrame(frame, itemData, slotName)
+    -- NEW: Handle both old format (just itemId) and new format (table with itemId and collected)
+    local itemId, isCollected
+    if type(itemData) == "table" then
+        itemId = itemData.itemId
+        isCollected = itemData.collected
+    else
+        itemId = itemData
+        isCollected = IsAppearanceCollected(itemData)
+    end
+    
     frame.itemId = itemId
+    frame.isCollected = isCollected  -- NEW: Store collected status on frame
     frame.isLoaded = false
     frame.model:SetScript("OnUpdateModel", nil)
     frame.collectedIcon:Hide()
@@ -1243,10 +1342,10 @@ UpdatePreviewGrid = function()
     
     local gridIndex = 1
     for i = startIndex, endIndex do
-        local itemId = currentItems[i]
+        local itemData = currentItems[i]
         local frame = itemFrames[gridIndex]
         
-        if frame and itemId then
+        if frame and itemData then
             frame:SetSize(itemWidth, itemHeight)
             local col = (gridIndex - 1) % cols
             local row = math.floor((gridIndex - 1) / cols)
@@ -1254,7 +1353,8 @@ UpdatePreviewGrid = function()
             local y = -row * (itemHeight + GRID_SPACING)
             frame:ClearAllPoints()
             frame:SetPoint("TOPLEFT", x, y)
-            UpdateItemFrame(frame, itemId, currentSlot)
+            -- NEW: Pass entire itemData (which may be table with collected status)
+            UpdateItemFrame(frame, itemData, currentSlot)
             gridIndex = gridIndex + 1
         end
     end
@@ -1263,7 +1363,9 @@ UpdatePreviewGrid = function()
     if selectedItemId and slotSelectedItems[currentSlot] then
         local found = false
         for i = startIndex, endIndex do
-            if currentItems[i] == slotSelectedItems[currentSlot] then
+            local itemData = currentItems[i]
+            local itemId = type(itemData) == "table" and itemData.itemId or itemData
+            if itemId == slotSelectedItems[currentSlot] then
                 found = true
                 break
             end
@@ -1523,7 +1625,7 @@ local function UpdateSubclassDropdown()
                 currentItems = {}
                 currentPage = 1
                 UpdatePreviewGrid()  -- Clear grid immediately
-                RequestSlotItemsFromServer(slotId, currentSubclass, currentQuality)
+                RequestSlotItemsFromServer(slotId, currentSubclass, currentQuality, currentCollectionFilter)
                 
                 CloseDropDownMenus()
             end
@@ -1568,7 +1670,7 @@ local function UpdateQualityDropdown()
                 currentItems = {}
                 currentPage = 1
                 UpdatePreviewGrid()  -- Clear grid immediately
-                RequestSlotItemsFromServer(slotId, currentSubclass, currentQuality)
+                RequestSlotItemsFromServer(slotId, currentSubclass, currentQuality, currentCollectionFilter)
                 
                 CloseDropDownMenus()
             end
@@ -1583,6 +1685,64 @@ local function UpdateQualityDropdown()
     else
         local color = QUALITY_COLORS[currentQuality] or "|cffffffff"
         UIDropDownMenu_SetText(qualityDropdown, color .. currentQuality .. "|r")
+    end
+end
+
+-- ============================================================================
+-- Collection Filter Dropdown
+-- ============================================================================
+
+UpdateCollectionFilterDropdown = function()
+    if not collectionFilterDropdown then return end
+    
+    UIDropDownMenu_Initialize(collectionFilterDropdown, function(self, level)
+        for _, filter in ipairs(COLLECTION_FILTER_OPTIONS) do
+            local info = UIDropDownMenu_CreateInfo()
+            
+            -- Color based on filter type
+            if filter == "Collected" then
+                info.text = "|cff00ff00" .. (L["FILTER_COLLECTED"] or "Collected") .. "|r"
+            elseif filter == "Uncollected" then
+                info.text = "|cff888888" .. (L["FILTER_UNCOLLECTED"] or "Uncollected") .. "|r"
+            else
+                info.text = L["FILTER_ALL"] or "All"
+            end
+            
+            info.value = filter
+            info.func = function(self)
+                currentCollectionFilter = self.value
+                slotSelectedCollectionFilter[currentSlot] = currentCollectionFilter
+                
+                -- Update dropdown text with color
+                if currentCollectionFilter == "Collected" then
+                    UIDropDownMenu_SetText(collectionFilterDropdown, "|cff00ff00" .. (L["FILTER_COLLECTED"] or "Collected") .. "|r")
+                elseif currentCollectionFilter == "Uncollected" then
+                    UIDropDownMenu_SetText(collectionFilterDropdown, "|cff888888" .. (L["FILTER_UNCOLLECTED"] or "Uncollected") .. "|r")
+                else
+                    UIDropDownMenu_SetText(collectionFilterDropdown, L["FILTER_ALL"] or "All")
+                end
+                
+                -- Request items from server with collection filter
+                local slotId = SLOT_NAME_TO_EQUIP_SLOT[currentSlot]
+                currentItems = {}
+                currentPage = 1
+                UpdatePreviewGrid()  -- Clear grid immediately
+                RequestSlotItemsFromServer(slotId, currentSubclass, currentQuality, currentCollectionFilter)
+                
+                CloseDropDownMenus()
+            end
+            info.checked = (filter == currentCollectionFilter)
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    
+    -- Set initial text with color
+    if currentCollectionFilter == "Collected" then
+        UIDropDownMenu_SetText(collectionFilterDropdown, "|cff00ff00" .. (L["FILTER_COLLECTED"] or "Collected") .. "|r")
+    elseif currentCollectionFilter == "Uncollected" then
+        UIDropDownMenu_SetText(collectionFilterDropdown, "|cff888888" .. (L["FILTER_UNCOLLECTED"] or "Uncollected") .. "|r")
+    else
+        UIDropDownMenu_SetText(collectionFilterDropdown, L["FILTER_ALL"] or "All")
     end
 end
 
@@ -1704,6 +1864,9 @@ local function CreateSlotButton(parent, slotName)
         currentSlot = self.slotName
         currentSubclass = slotSelectedSubclass[currentSlot] or "All"
         currentQuality = slotSelectedQuality[currentSlot] or "All"
+        -- NEW: Reset collection filter to "Collected" when changing slots
+        currentCollectionFilter = "Collected"
+        slotSelectedCollectionFilter[currentSlot] = "Collected"
         
         -- If search is active, show search results for this slot
         if searchActive then
@@ -1721,6 +1884,7 @@ local function CreateSlotButton(parent, slotName)
             -- Update dropdowns to show current selection
             UpdateSubclassDropdown()
             UpdateQualityDropdown()
+            UpdateCollectionFilterDropdown()  -- NEW
             UpdatePreviewGrid()
             
             -- Update page text
@@ -1742,11 +1906,12 @@ local function CreateSlotButton(parent, slotName)
         
         UpdateSubclassDropdown()
         UpdateQualityDropdown()
+        UpdateCollectionFilterDropdown()  -- NEW
         UpdatePreviewGrid()
         
         -- Request items from server with current filters
         local slotId = SLOT_NAME_TO_EQUIP_SLOT[currentSlot]
-        RequestSlotItemsFromServer(slotId, currentSubclass, currentQuality)
+        RequestSlotItemsFromServer(slotId, currentSubclass, currentQuality, currentCollectionFilter)  -- NEW: Include collection filter
         
         PlaySound("igMainMenuOptionCheckBoxOn")
     end)
@@ -2230,7 +2395,7 @@ local function CreateSearchBar(parent, previewGrid)
         currentItems = {}
         currentPage = 1
         UpdatePreviewGrid()
-        RequestSlotItemsFromServer(slotId, currentSubclass, currentQuality)
+        RequestSlotItemsFromServer(slotId, currentSubclass, currentQuality, currentCollectionFilter)
     end
     
     -- Set up event handlers
@@ -2256,11 +2421,11 @@ local function CreateSearchBar(parent, previewGrid)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:SetText(L["SEARCH_TOOLTIP"] or "Search Options:")
         GameTooltip:AddLine(L["SEARCH_NAME"] and 
-            "â€¢ " .. L["SEARCH_NAME"] .. L["SEARCH_NAME_DESCRIPTION"], 1, 1, 1)
+            "• " .. L["SEARCH_NAME"] .. L["SEARCH_NAME_DESCRIPTION"], 1, 1, 1)
         GameTooltip:AddLine(L["SEARCH_ID"] and 
-            "â€¢ " .. L["SEARCH_ID"] .. L["SEARCH_ID_DESCRIPTION"], 1, 1, 1)
+            "• " .. L["SEARCH_ID"] .. L["SEARCH_ID_DESCRIPTION"], 1, 1, 1)
         GameTooltip:AddLine(L["SEARCH_DISPLAYID"] and 
-            "â€¢ " .. L["SEARCH_DISPLAYID"] .. L["SEARCH_DISPLAYID_DESCRIPTION"], 1, 1, 1)
+            "• " .. L["SEARCH_DISPLAYID"] .. L["SEARCH_DISPLAYID_DESCRIPTION"], 1, 1, 1)
         GameTooltip:AddLine(" ")
         if searchActive then
             GameTooltip:AddLine("Active search: " .. lastSearchText, 0, 1, 0)
@@ -2371,6 +2536,7 @@ local function CreateMainFrame()
             modeToggleButton.ModeText:SetTextColor(1, 1, 1)
             if subclassDropdown then subclassDropdown:Show() end
             if qualityDropdown then qualityDropdown:Show() end
+            if collectionFilterDropdown then collectionFilterDropdown:Show() end  -- NEW
             if frame.searchBar then frame.searchBar:Show() end
             for slotName, btn in pairs(slotButtons) do
                 btn:SetAlpha(1.0)
@@ -2382,6 +2548,7 @@ local function CreateMainFrame()
             modeToggleButton.ModeText:SetTextColor(0.5, 0.8, 1)
             if subclassDropdown then subclassDropdown:Hide() end
             if qualityDropdown then qualityDropdown:Hide() end
+            if collectionFilterDropdown then collectionFilterDropdown:Hide() end  -- NEW
             if frame.searchBar then frame.searchBar:Hide() end
             for slotName, btn in pairs(slotButtons) do
                 if ENCHANT_ELIGIBLE_SLOTS[slotName] then
@@ -2441,8 +2608,14 @@ local function CreateMainFrame()
     -- Quality dropdown - REMOVE THE "local" keyword here
     qualityDropdown = CreateFrame("Frame", "TransmogQualityDropdown", frame, "UIDropDownMenuTemplate")
     qualityDropdown:SetPoint("LEFT", subclassDropdown, "RIGHT", 10, 0)
-    UIDropDownMenu_SetWidth(qualityDropdown, 120)
+    UIDropDownMenu_SetWidth(qualityDropdown, 100)
     frame.qualityDropdown = qualityDropdown
+    
+    -- NEW: Collection Filter dropdown (next to quality dropdown)
+    collectionFilterDropdown = CreateFrame("Frame", "TransmogCollectionFilterDropdown", frame, "UIDropDownMenuTemplate")
+    collectionFilterDropdown:SetPoint("LEFT", qualityDropdown, "RIGHT", 10, 0)
+    UIDropDownMenu_SetWidth(collectionFilterDropdown, 100)
+    frame.collectionFilterDropdown = collectionFilterDropdown
     
     local previewGrid = CreatePreviewGrid(frame)
     previewGrid:SetPoint("TOPLEFT", 355, -55)
@@ -2630,9 +2803,10 @@ initFrame:SetScript("OnEvent", function(self, event)
         -- Initialize slot selected items table
         slotSelectedItems = {}
         
-        -- Initialize quality storage for all slots
+        -- Initialize quality and collection filter storage for all slots
         for _, slotName in ipairs(SLOT_ORDER) do
             slotSelectedQuality[slotName] = "All"
+            slotSelectedCollectionFilter[slotName] = "Collected"  -- NEW: Default to Collected
         end
         
         -- Request fresh data from server after delay
@@ -2650,6 +2824,7 @@ initFrame:SetScript("OnEvent", function(self, event)
         currentSlot = "Head"
         currentSubclass = slotSelectedSubclass["Head"] or "All"
         currentQuality = slotSelectedQuality["Head"] or "All"
+        currentCollectionFilter = "Collected"  -- NEW: Default to Collected
         currentItems = {}
         
         if slotButtons["Head"] then
@@ -2659,6 +2834,7 @@ initFrame:SetScript("OnEvent", function(self, event)
         mainFrame:SetScript("OnShow", function()
             UpdateSubclassDropdown()
             UpdateQualityDropdown()
+            UpdateCollectionFilterDropdown()  -- NEW
             UpdateSetDropdown()
             
             -- If search is active, show search results
@@ -2671,7 +2847,7 @@ initFrame:SetScript("OnEvent", function(self, event)
                 -- Normal mode: request fresh data when window opens
                 local slotId = SLOT_NAME_TO_EQUIP_SLOT[currentSlot]
                 currentItems = {}
-                RequestSlotItemsFromServer(slotId, currentSubclass, currentQuality)
+                RequestSlotItemsFromServer(slotId, currentSubclass, currentQuality, currentCollectionFilter)  -- NEW: Include collection filter
             end
             
             -- Ensure preview grid is updated

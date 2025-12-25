@@ -108,6 +108,9 @@ L["ERROR_INVALID_SLOT"] = "Invalid equipment slot"
 
 -- Filters
 L["SELECT_ITEM_CLICK"] = "Click to select this item"
+L["FILTER_ALL"] = "All"
+L["FILTER_COLLECTED"] = "Collected"
+L["FILTER_UNCOLLECTED"] = "Uncollected"
 
 -- Set Management
 L["SET_NEW"] = "New Set..."

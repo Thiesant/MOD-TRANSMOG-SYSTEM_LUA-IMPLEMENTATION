@@ -108,6 +108,9 @@ L["ERROR_INVALID_SLOT"] = "Emplacement d'équipement invalide"
 
 -- Filters
 L["SELECT_ITEM_CLICK"] = "Cliquez pour sélectionner cet objet"
+L["FILTER_ALL"] = "Tous"
+L["FILTER_COLLECTED"] = "Collectés"
+L["FILTER_UNCOLLECTED"] = "Non collectés"
 
 -- Set Management
 L["SET_NEW"] = "Nouvel ensemble..."
