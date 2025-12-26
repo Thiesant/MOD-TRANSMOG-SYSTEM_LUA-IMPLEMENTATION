@@ -172,22 +172,38 @@ local pendingEnchantCacheRequest = false
 
 -- Helper to load cache from SavedVariables
 local function LoadCacheFromSavedVariables()
-    if TransmogDB and TransmogDB.itemCache then
-        CLIENT_ITEM_CACHE.version = TransmogDB.itemCache.version or 0
-        CLIENT_ITEM_CACHE.bySlot = TransmogDB.itemCache.bySlot or {}
-        CLIENT_ITEM_CACHE.enchants = TransmogDB.itemCache.enchants or {}
-        CLIENT_ITEM_CACHE.enchantVersion = TransmogDB.itemCache.enchantVersion or 0
-        CLIENT_ITEM_CACHE.isReady = (CLIENT_ITEM_CACHE.version > 0)
-        
-        if CLIENT_ITEM_CACHE.isReady then
-            local slotCount = 0
-            local itemCount = 0
-            for slotId, items in pairs(CLIENT_ITEM_CACHE.bySlot) do
-                slotCount = slotCount + 1
-                itemCount = itemCount + #items
+    if TransmogDB then
+        -- Load item cache
+        if TransmogDB.itemCache then
+            CLIENT_ITEM_CACHE.version = TransmogDB.itemCache.version or 0
+            CLIENT_ITEM_CACHE.bySlot = TransmogDB.itemCache.bySlot or {}
+            CLIENT_ITEM_CACHE.enchants = TransmogDB.itemCache.enchants or {}
+            CLIENT_ITEM_CACHE.enchantVersion = TransmogDB.itemCache.enchantVersion or 0
+            CLIENT_ITEM_CACHE.isReady = (CLIENT_ITEM_CACHE.version > 0)
+            
+            if CLIENT_ITEM_CACHE.isReady then
+                local slotCount = 0
+                local itemCount = 0
+                for slotId, items in pairs(CLIENT_ITEM_CACHE.bySlot) do
+                    slotCount = slotCount + 1
+                    itemCount = itemCount + #items
+                end
+                print(string.format("[Transmog] Loaded item cache from SavedVariables: version=%d, %d slots, %d items, %d enchants",
+                    CLIENT_ITEM_CACHE.version, slotCount, itemCount, #CLIENT_ITEM_CACHE.enchants))
             end
-            print(string.format("[Transmog] Loaded cache from SavedVariables: version=%d, %d slots, %d items, %d enchants",
-                CLIENT_ITEM_CACHE.version, slotCount, itemCount, #CLIENT_ITEM_CACHE.enchants))
+        end
+        
+        -- Load collection from SavedVariables (fallback when server doesn't send it)
+        if TransmogDB.collection then
+            local count = 0
+            for itemId, _ in pairs(TransmogDB.collection) do
+                collectedAppearances[itemId] = true
+                count = count + 1
+            end
+            if count > 0 then
+                isCollectionLoaded = true
+                print(string.format("[Transmog] Loaded %d collected items from SavedVariables", count))
+            end
         end
     end
 end
@@ -704,11 +720,14 @@ TRANSMOG_HANDLER.CollectionStatus = function(player, data)
     -- Clear on first chunk
     if data.chunk == 1 then
         collectedAppearances = {}
+        TransmogDB = TransmogDB or {}
+        TransmogDB.collection = {}
     end
     
-    -- Add items to collection
+    -- Add items to collection (both runtime and SavedVariables)
     for _, itemId in ipairs(data.items or {}) do
         collectedAppearances[itemId] = true
+        TransmogDB.collection[itemId] = true
     end
     
     -- When all chunks received
@@ -882,10 +901,13 @@ end
 TRANSMOG_HANDLER.CollectionData = function(player, data)
     if data.chunk == 1 then
         collectedAppearances = {}
+        TransmogDB = TransmogDB or {}
+        TransmogDB.collection = {}
     end
     
     for _, itemId in ipairs(data.items) do
         collectedAppearances[itemId] = true
+        TransmogDB.collection[itemId] = true
     end
     
     if data.chunk == data.totalChunks then
@@ -938,6 +960,8 @@ TRANSMOG_HANDLER.AppearanceCheck = function(player, data)
     
     if data.collected then
         collectedAppearances[data.itemId] = true
+        TransmogDB.collection = TransmogDB.collection or {}
+        TransmogDB.collection[data.itemId] = true
     end
 end
 
@@ -945,6 +969,8 @@ TRANSMOG_HANDLER.AppearanceCheckBulk = function(player, results)
     for itemId, collected in pairs(results) do
         if collected then
             collectedAppearances[itemId] = true
+            TransmogDB.collection = TransmogDB.collection or {}
+            TransmogDB.collection[itemId] = true
         end
     end
 end
@@ -1020,6 +1046,8 @@ TRANSMOG_HANDLER.SlotItems = function(player, data)
                 -- Also update local collection cache if collected
                 if item.collected ~= false then
                     collectedAppearances[item.itemId] = true
+                    TransmogDB.collection = TransmogDB.collection or {}
+                    TransmogDB.collection[item.itemId] = true
                 end
             end
         end
