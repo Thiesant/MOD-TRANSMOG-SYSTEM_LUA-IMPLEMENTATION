@@ -81,7 +81,7 @@ L["SEARCH"] = "Rechercher"
 L["SEARCH_TOOLTIP"] = "Options de recherche:"
 L["SEARCH_CLEAR"] = "Supprimer"
 L["SEARCH_NAME"] = "Nom"
-L["SEARCH_NAME_DESCRIPTION"] = ": Entrer le nom d'un objet (anglais ou français)"
+L["SEARCH_NAME_DESCRIPTION"] = ": Entrer le nom d'un objet (français)"
 L["SEARCH_ID"] = "ID"
 L["SEARCH_ID_DESCRIPTION"] = ": Entrer l'ID de l'objet"
 L["SEARCH_DISPLAYID"] = "DisplayID"
@@ -163,6 +163,7 @@ L["Holy"] = "Sacré"
 L["Shadow"] = "Ombre"
 L["Physical"] = "Physique"
 L["Shaman"] = "Chaman"
+
 -- Settings Panel
 L["SETTINGS"] = "Paramètres"
 L["BACK"] = "Retour"
@@ -190,6 +191,11 @@ L["SETTING_SHOW_DISPLAY_ID"] = "Afficher le Display ID dans l'infobulle"
 L["SETTING_SHOW_COLLECTED"] = "Afficher \"Apparence collectée\" dans l'infobulle"
 L["SETTING_SHOW_NEW"] = "Afficher \"Nouvelle apparence\" dans l'infobulle"
 
+-- Grid Preview Settings
+L["SETTINGS_GRID_PREVIEW"] = "Paramètres d'aperçu de la grille"
+L["SETTING_HIDE_HAIR_CLOAK"] = "Masquer les cheveux sur l'aperçu des capes"
+L["SETTING_HIDE_HAIR_TABARD"] = "Masquer cheveux/barbe sur l'aperçu des tabards"
+
 -- Settings Info
 L["SETTINGS_INFO_TEXT"] = "|cff888888Paramètres globaux|r s'appliquent à tous les personnages.\n|cff888888Paramètres par personnage|r (fond, mode d'aperçu) sont sauvegardés par personnage.\n\nLes paramètres sont sauvegardés automatiquement."
 
@@ -204,3 +210,12 @@ L["CLASS_SHAMAN"] = "Chaman"
 L["CLASS_MAGE"] = "Mage"
 L["CLASS_WARLOCK"] = "Démoniste"
 L["CLASS_DRUID"] = "Druide"
+
+-- Quality Names
+L["QUALITY_POOR"] = "Médiocre"
+L["QUALITY_COMMON"] = "Commun"
+L["QUALITY_UNCOMMON"] = "Inhabituel"
+L["QUALITY_RARE"] = "Rare"
+L["QUALITY_EPIC"] = "Épique"
+L["QUALITY_LEGENDARY"] = "Légendaire"
+L["QUALITY_HEIRLOOM"] = "Héritage"

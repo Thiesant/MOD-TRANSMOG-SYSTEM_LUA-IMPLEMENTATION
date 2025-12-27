@@ -33,22 +33,42 @@ local function GetCharacterKey()
 end
 
 local function InitializeSettings()
-    -- Account-wide defaults
-    TransmogSettings.account = TransmogSettings.account or {
-        showCollectedTooltip = true,       -- Show "Appearance Collected" in tooltip
-        showNewAppearanceTooltip = true,   -- Show "New Appearance" in tooltip
-        showItemIdTooltip = true,          -- Show Item ID in tooltip
-        showDisplayIdTooltip = true,       -- Show Display ID in tooltip
-    }
+    -- Initialize account-wide settings table
+    TransmogSettings.account = TransmogSettings.account or {}
+    
+    -- Set defaults for each account-wide setting if not already set
+    if TransmogSettings.account.showCollectedTooltip == nil then
+        TransmogSettings.account.showCollectedTooltip = true
+    end
+    if TransmogSettings.account.showNewAppearanceTooltip == nil then
+        TransmogSettings.account.showNewAppearanceTooltip = true
+    end
+    if TransmogSettings.account.showItemIdTooltip == nil then
+        TransmogSettings.account.showItemIdTooltip = true
+    end
+    if TransmogSettings.account.showDisplayIdTooltip == nil then
+        TransmogSettings.account.showDisplayIdTooltip = true
+    end
+    if TransmogSettings.account.hideHairOnCloakPreview == nil then
+        TransmogSettings.account.hideHairOnCloakPreview = true
+    end
+    if TransmogSettings.account.hideHairOnTabardPreview == nil then
+        TransmogSettings.account.hideHairOnTabardPreview = true
+    end
     
     -- Character-specific defaults (keyed by character name-realm)
     TransmogSettings.characters = TransmogSettings.characters or {}
     
     local charKey = GetCharacterKey()
-    TransmogSettings.characters[charKey] = TransmogSettings.characters[charKey] or {
-        backgroundOverride = nil,  -- nil = use class default, or class name string
-        previewMode = "classic",   -- "classic" or "hd" - character-specific
-    }
+    TransmogSettings.characters[charKey] = TransmogSettings.characters[charKey] or {}
+    
+    -- Set defaults for each character-specific setting if not already set
+    if TransmogSettings.characters[charKey].backgroundOverride == nil then
+        TransmogSettings.characters[charKey].backgroundOverride = nil  -- nil = use class default
+    end
+    if TransmogSettings.characters[charKey].previewMode == nil then
+        TransmogSettings.characters[charKey].previewMode = "classic"
+    end
 end
 
 -- Get a setting value (character-specific if exists, else account-wide)
@@ -82,9 +102,18 @@ local function SetSetting(key, value, characterSpecific)
     end
 end
 
+-- Check if a setting is enabled (nil and true both mean enabled, only false means disabled)
+local function IsSettingEnabled(key)
+    local value = GetSetting(key)
+    if value == nil then return true end  -- Default to enabled if not set
+    if value == 1 then return true end    -- Handle old checkbox values (1/nil)
+    return value == true
+end
+
 -- Export for use elsewhere
 Transmog.GetSetting = GetSetting
 Transmog.SetSetting = SetSetting
+Transmog.IsSettingEnabled = IsSettingEnabled
 
 -- ============================================================================
 -- Search Bar variables
@@ -1113,6 +1142,9 @@ TRANSMOG_HANDLER.CollectionData = function(player, data)
     end
 end
 
+-- Forward declaration for RefreshDressingRoomModel (defined later after mainFrame declaration)
+local RefreshDressingRoomModel
+
 TRANSMOG_HANDLER.ActiveTransmogs = function(player, data)
     activeTransmogs = data or {}
     
@@ -1131,6 +1163,9 @@ TRANSMOG_HANDLER.Applied = function(player, data)
         UpdateSlotButtonIcons()
         -- Update grid to show highlight
         UpdatePreviewGrid()
+        
+        -- Refresh dressing room model
+        RefreshDressingRoomModel()
     end
 end
 
@@ -1142,6 +1177,9 @@ TRANSMOG_HANDLER.Removed = function(player, slot)
     UpdateSlotButtonIcons()
     -- Update grid to remove highlight
     UpdatePreviewGrid()
+    
+    -- Refresh dressing room model
+    RefreshDressingRoomModel()
 end
 
 
@@ -1324,21 +1362,8 @@ TRANSMOG_HANDLER.SetLoaded = function(player, data)
         end
     end
     
-    -- Update dressing room model with loaded items
-    -- Use mainFrame.dressingRoom since dressingRoom variable may not be in scope yet
-    local dr = mainFrame and mainFrame.dressingRoom
-    if dr and dr.model then
-        dr.model:SetUnit("player")  -- Reset model first
-        dr.model:Undress()
-        -- Small delay to ensure model is ready
-        C_Timer.After(0.1, function()
-            for slotName, itemId in pairs(slotSelectedItems) do
-                if itemId then
-                    dr.model:TryOn(itemId)
-                end
-            end
-        end)
-    end
+    -- Update dressing room model with loaded set items for preview
+    RefreshDressingRoomModel(slotSelectedItems)
     
     -- Update grid to show cyan highlights
     UpdatePreviewGrid()
@@ -1378,6 +1403,9 @@ TRANSMOG_HANDLER.SetApplied = function(player, data)
     -- Update UI
     UpdateSlotButtonIcons()
     UpdatePreviewGrid()
+    
+    -- Refresh dressing room model
+    RefreshDressingRoomModel()
 end
 
 TRANSMOG_HANDLER.SetError = function(player, errorMsg)
@@ -1510,9 +1538,13 @@ local function OnTooltipSetItem(tooltip)
     if cached then
         if not cached.eligible then return end
         if cached.collected then
-            tooltip:AddLine(L["APPEARANCE_COLLECTED"])
+            if IsSettingEnabled("showCollectedTooltip") then
+                tooltip:AddLine(L["APPEARANCE_COLLECTED"])
+            end
         else
-            tooltip:AddLine(L["NEW_APPEARANCE"])
+            if IsSettingEnabled("showNewAppearanceTooltip") then
+                tooltip:AddLine(L["NEW_APPEARANCE"])
+            end
         end
         tooltip:Show()
         return
@@ -1520,10 +1552,15 @@ local function OnTooltipSetItem(tooltip)
     
     -- Check local collection (from SavedVariables/runtime cache)
     if IsAppearanceCollected(itemId) then
-        tooltip:AddLine(L["APPEARANCE_COLLECTED"])
-        tooltip:Show()
-		else
-		tooltip:AddLine(L["NEW_APPEARANCE"])
+        if IsSettingEnabled("showCollectedTooltip") then
+            tooltip:AddLine(L["APPEARANCE_COLLECTED"])
+            tooltip:Show()
+        end
+    else
+        if IsSettingEnabled("showNewAppearanceTooltip") then
+            tooltip:AddLine(L["NEW_APPEARANCE"])
+            tooltip:Show()
+        end
     end
     
     -- Not in cache - ask server (only once per item per session)
@@ -1585,6 +1622,55 @@ local slotButtons = {}
 local itemFrames = {}
 local subclassDropdown
 local qualityDropdown
+
+-- ============================================================================
+-- Dressing Room Model Refresh Helper
+-- ============================================================================
+
+-- Refreshes dressing room model with current equipped gear + active transmogs
+-- @param previewItems: optional table of {slotName = itemId} for preview mode (e.g., loaded set)
+RefreshDressingRoomModel = function(previewItems)
+    -- Wait for mainFrame to be initialized
+    if not mainFrame or not mainFrame.dressingRoom then
+        return
+    end
+    
+    local mdl = mainFrame.dressingRoom.model
+    if not mdl then return end
+    
+    -- Reset position first
+    mdl:SetFacing(0)
+    mdl:SetPosition(0, 0, 0)
+    
+    C_Timer.After(0.01, function()
+        mdl:SetUnit("player")
+        
+        if previewItems then
+            -- Preview mode: undress and show only preview items
+            mdl:Undress()
+            C_Timer.After(0.05, function()
+                for slotName, itemId in pairs(previewItems) do
+                    if itemId then
+                        mdl:TryOn(itemId)
+                    end
+                end
+                mdl:SetPosition(0, 0, 0)
+                mdl:SetFacing(0)
+            end)
+        else
+            -- Normal mode: show equipped gear + active transmogs
+            C_Timer.After(0.05, function()
+                for slotId, itemId in pairs(activeTransmogs) do
+                    if itemId then
+                        mdl:TryOn(itemId)
+                    end
+                end
+                mdl:SetPosition(0, 0, 0)
+                mdl:SetFacing(0)
+            end)
+        end
+    end)
+end
 
 -- ============================================================================
 -- Camera Functions
@@ -1807,6 +1893,18 @@ local function CreateItemFrame(parent, index)
         if f.itemId and f.isLoaded then
             if button == "LeftButton" then
                 if IsShiftKeyDown() then
+                    -- Clear selection for this slot when applying
+                    slotSelectedItems[currentSlot] = nil
+                    selectedItemId = nil
+                    selectedItemFrame = nil
+                    
+                    -- Clear cyan borders from all visible item frames
+                    for _, itemFrame in ipairs(itemFrames) do
+                        if itemFrame.selectionBorder then
+                            itemFrame.selectionBorder:Hide()
+                        end
+                    end
+                    
                     -- Let server validate collection status (respects ALLOW_UNCOLLECTED_TRANSMOG setting)
                     ApplyTransmog(currentSlot, f.itemId)
                 else
@@ -1875,13 +1973,13 @@ local function CreateItemFrame(parent, index)
         if f.itemId and f.isLoaded then
             GameTooltip:SetOwner(f, "ANCHOR_TOPRIGHT")
             GameTooltip:SetHyperlink("item:"..f.itemId)
-            GameTooltip:AddLine(" ")
             
             -- Add Item ID and Display ID for cross-locale sharing (if enabled)
-            if GetSetting("showItemIdTooltip") ~= false then
+            if IsSettingEnabled("showItemIdTooltip") then
+                GameTooltip:AddLine(" ")
                 GameTooltip:AddLine(string.format("Item ID: %d", f.itemId), 0.6, 0.6, 0.6)
             end
-            if f.displayId and GetSetting("showDisplayIdTooltip") ~= false then
+            if f.displayId and IsSettingEnabled("showDisplayIdTooltip") then
                 GameTooltip:AddLine(string.format("Display ID: %d", f.displayId), 0.6, 0.6, 0.6)
             end
             
@@ -1893,13 +1991,13 @@ local function CreateItemFrame(parent, index)
             
             -- Show collection status (if enabled)
             if isCollected then
-                if GetSetting("showCollectedTooltip") ~= false then
+                if IsSettingEnabled("showCollectedTooltip") then
                     GameTooltip:AddLine(" ")
                     GameTooltip:AddLine(L["APPEARANCE_COLLECTED"])
                 end
                 GameTooltip:AddLine(L["APPLY_APPEARANCE_SHIFT_CLICK"], 0.7, 0.7, 0.7)
             else
-                if GetSetting("showNewAppearanceTooltip") ~= false then
+                if IsSettingEnabled("showNewAppearanceTooltip") then
                     GameTooltip:AddLine(" ")
                     GameTooltip:AddLine(L["NEW_APPEARANCE"])
                 end
@@ -1960,6 +2058,15 @@ local function SetupItemModel(frame, slotName)
     model:ClearModel()
     model:SetUnit("player")
     model:Undress()
+    
+    -- Handle hair/beard hiding for specific slots using helmet items
+    -- Item 12185 = Bloodsail Admiral's Hat (hides hair only)
+    -- Item 16026 = Judgement Helm replica (hides hair + beard)
+    if slotName == "Back" and GetSetting("hideHairOnCloakPreview") == true then
+        model:TryOn(12185)  -- Hide hair only for cloaks
+    elseif slotName == "Tabard" and GetSetting("hideHairOnTabardPreview") == true then
+        model:TryOn(16026)  -- Hide hair + beard for tabards
+    end
     
     model:SetPosition(cam.x, cam.y, cam.z)
     model:SetFacing(cam.facing)
@@ -2445,12 +2552,15 @@ local function UpdateQualityDropdown()
         for _, quality in ipairs(QUALITY_OPTIONS) do
             local info = UIDropDownMenu_CreateInfo()
             
+            -- Get localized name
+            local localizedName = L["QUALITY_" .. string.upper(quality)] or quality
+            
             -- Color the text according to quality (except "All")
             if quality == "All" then
-                info.text = quality
+                info.text = L["FILTER_ALL"] or "All"
             else
                 local color = QUALITY_COLORS[quality] or "|cffffffff"
-                info.text = color .. quality .. "|r"
+                info.text = color .. localizedName .. "|r"
             end
             
             info.value = quality
@@ -2458,12 +2568,13 @@ local function UpdateQualityDropdown()
                 currentQuality = self.value
                 slotSelectedQuality[currentSlot] = currentQuality  -- Store the selection
                 
-                -- Update dropdown text with color
+                -- Update dropdown text with color and localized name
                 if currentQuality == "All" then
-                    UIDropDownMenu_SetText(qualityDropdown, "All")
+                    UIDropDownMenu_SetText(qualityDropdown, L["FILTER_ALL"] or "All")
                 else
                     local color = QUALITY_COLORS[currentQuality] or "|cffffffff"
-                    UIDropDownMenu_SetText(qualityDropdown, color .. currentQuality .. "|r")
+                    local localName = L["QUALITY_" .. string.upper(currentQuality)] or currentQuality
+                    UIDropDownMenu_SetText(qualityDropdown, color .. localName .. "|r")
                 end
                 
                 -- NEW: Use cache-based loading with local filtering
@@ -2477,12 +2588,13 @@ local function UpdateQualityDropdown()
         end
     end)
     
-    -- Set initial text with color
+    -- Set initial text with color and localized name
     if currentQuality == "All" then
-        UIDropDownMenu_SetText(qualityDropdown, "All")
+        UIDropDownMenu_SetText(qualityDropdown, L["FILTER_ALL"] or "All")
     else
         local color = QUALITY_COLORS[currentQuality] or "|cffffffff"
-        UIDropDownMenu_SetText(qualityDropdown, color .. currentQuality .. "|r")
+        local localName = L["QUALITY_" .. string.upper(currentQuality)] or currentQuality
+        UIDropDownMenu_SetText(qualityDropdown, color .. localName .. "|r")
     end
 end
 
@@ -2819,6 +2931,9 @@ local function CreateSlotButton(parent, slotName)
                 else
                     UpdatePreviewGrid()
                 end
+                
+                -- Refresh dressing room model
+                RefreshDressingRoomModel()
             end
             
             for name, slotBtn in pairs(slotButtons) do
@@ -3024,12 +3139,17 @@ local function CreateDressingRoom(parent)
     model:SetRotation(0)
     frame.model = model
     
+    -- Store initial position for proper reset
+    local initialCameraDistance = 0
+    
     -- Mouse interaction for rotating/zooming
     local isDragging = false
     local isRotating = false
     local lastX, lastY = 0, 0
     
     model:EnableMouse(true)
+    model:EnableMouseWheel(true)  -- Enable mouse wheel for zoom
+    
     model:SetScript("OnMouseDown", function(self, button)
         lastX, lastY = GetCursorPosition()
         if button == "LeftButton" then
@@ -3075,9 +3195,30 @@ local function CreateDressingRoom(parent)
     end
     
     function frame:Reset()
-        self.model:SetUnit("player")
-        self.model:SetPosition(0, 0, 0)
-        self.model:SetFacing(0)
+        -- Store reference to model
+        local mdl = self.model
+        
+        -- First reset position and facing
+        mdl:SetFacing(0)
+        mdl:SetPosition(0, 0, 0)
+        
+        -- Refresh model with current equipped gear on next frame
+        -- This restores the player's current appearance (gear + transmogs)
+        C_Timer.After(0.01, function()
+            mdl:SetUnit("player")
+            -- Apply active transmogs after model loads
+            C_Timer.After(0.05, function()
+                -- Apply all active transmogs to the model
+                for slotId, itemId in pairs(activeTransmogs) do
+                    if itemId then
+                        mdl:TryOn(itemId)
+                    end
+                end
+                -- Reset position again after everything is applied
+                mdl:SetPosition(0, 0, 0)
+                mdl:SetFacing(0)
+            end)
+        end)
         
         -- Clear all cyan selections when reset is clicked
         slotSelectedItems = {}
@@ -3630,13 +3771,25 @@ local function CreateSettingsPanel(parent)
         text:SetPoint("LEFT", check, "RIGHT", 5, 0)
         text:SetText(label)
         
+        -- Store the setting key for later reference
+        check.settingKey = settingKey
+        check.isCharacterSpecific = isCharacterSpecific
+        
         -- Set initial state
-        check:SetChecked(GetSetting(settingKey) ~= false)
+        local currentValue = GetSetting(settingKey)
+        check:SetChecked(currentValue == true or currentValue == nil)  -- Default to true if nil
         
         check:SetScript("OnClick", function(self)
-            local checked = self:GetChecked()
-            SetSetting(settingKey, checked, isCharacterSpecific)
+            -- WoW 3.3.5: GetChecked() returns 1 or nil, convert to boolean
+            local checked = self:GetChecked() == 1 or self:GetChecked() == true
+            SetSetting(self.settingKey, checked, self.isCharacterSpecific)
             PlaySound("igMainMenuOptionCheckBoxOn")
+        end)
+        
+        -- Update state when parent (settings panel) is shown
+        check:SetScript("OnShow", function(self)
+            local value = GetSetting(self.settingKey)
+            self:SetChecked(value == true or value == nil)  -- Default to true if nil
         end)
         
         yOffset = yOffset - itemSpacing
@@ -3654,24 +3807,33 @@ local function CreateSettingsPanel(parent)
         dropdown:SetPoint("TOPLEFT", 10, yOffset)
         UIDropDownMenu_SetWidth(dropdown, 200)
         
-        local currentValue = GetSetting(settingKey)
+        -- Store references for OnShow updates
+        dropdown.settingKey = settingKey
+        dropdown.options = options
         
-        -- Find current label
-        local currentLabel = options[1].label
-        for _, opt in ipairs(options) do
-            if opt.value == currentValue then
-                currentLabel = opt.label
-                break
+        -- Helper to get label for current value (stored on dropdown for reuse)
+        dropdown.GetLabelForValue = function(self, value)
+            for _, opt in ipairs(self.options) do
+                if opt.value == value then
+                    return opt.label
+                end
             end
+            return self.options[1].label  -- Default to first option
         end
-        UIDropDownMenu_SetText(dropdown, currentLabel)
+        
+        -- Set initial text
+        local currentValue = GetSetting(settingKey)
+        UIDropDownMenu_SetText(dropdown, dropdown:GetLabelForValue(currentValue))
         
         UIDropDownMenu_Initialize(dropdown, function(self, level)
+            -- Fetch current value EACH time dropdown is opened
+            local nowValue = GetSetting(settingKey)
+            
             for _, opt in ipairs(options) do
                 local info = UIDropDownMenu_CreateInfo()
                 info.text = opt.label
                 info.value = opt.value
-                info.checked = (currentValue == opt.value)
+                info.checked = (nowValue == opt.value)
                 info.func = function()
                     SetSetting(settingKey, opt.value, isCharacterSpecific)
                     UIDropDownMenu_SetText(dropdown, opt.label)
@@ -3682,6 +3844,13 @@ local function CreateSettingsPanel(parent)
                 end
                 UIDropDownMenu_AddButton(info, level)
             end
+        end)
+        
+        -- Update displayed text when dropdown becomes visible
+        dropdown:SetScript("OnShow", function(self)
+            local value = GetSetting(self.settingKey)
+            local labelForValue = self:GetLabelForValue(value)
+            UIDropDownMenu_SetText(self, labelForValue)
         end)
         
         yOffset = yOffset - 35
@@ -3753,6 +3922,16 @@ local function CreateSettingsPanel(parent)
     CreateCheckbox(L["SETTING_SHOW_DISPLAY_ID"] or "Show Display ID in tooltip", "showDisplayIdTooltip", false)
     CreateCheckbox(L["SETTING_SHOW_COLLECTED"] or 'Show "Appearance Collected" in tooltip', "showCollectedTooltip", false)
     CreateCheckbox(L["SETTING_SHOW_NEW"] or 'Show "New Appearance" in tooltip', "showNewAppearanceTooltip", false)
+    
+    -- ========================================
+    -- SECTION: Grid Preview Settings
+    -- ========================================
+    yOffset = yOffset - sectionSpacing
+    CreateSectionHeader(L["SETTINGS_GRID_PREVIEW"] or "Grid Preview Settings")
+    yOffset = yOffset - 5
+    
+    CreateCheckbox(L["SETTING_HIDE_HAIR_CLOAK"] or "Hide hair on Cloak slot preview", "hideHairOnCloakPreview", false)
+    CreateCheckbox(L["SETTING_HIDE_HAIR_TABARD"] or "Hide hair/beard on Tabard slot preview", "hideHairOnTabardPreview", false)
     
     -- ========================================
     -- SECTION: Info

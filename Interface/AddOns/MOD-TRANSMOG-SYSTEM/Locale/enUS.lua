@@ -190,6 +190,11 @@ L["SETTING_SHOW_DISPLAY_ID"] = "Show Display ID in tooltip"
 L["SETTING_SHOW_COLLECTED"] = "Show \"Appearance Collected\" in tooltip"
 L["SETTING_SHOW_NEW"] = "Show \"New Appearance\" in tooltip"
 
+-- Grid Preview Settings
+L["SETTINGS_GRID_PREVIEW"] = "Grid Preview Settings"
+L["SETTING_HIDE_HAIR_CLOAK"] = "Hide hair on Cloak slot preview"
+L["SETTING_HIDE_HAIR_TABARD"] = "Hide hair/beard on Tabard slot preview"
+
 -- Settings Info
 L["SETTINGS_INFO_TEXT"] = "|cff888888Account-wide settings|r apply to all characters.\n|cff888888Character-specific settings|r (background, preview mode) are saved per character.\n\nSettings are saved automatically when changed."
 
@@ -204,3 +209,13 @@ L["CLASS_SHAMAN"] = "Shaman"
 L["CLASS_MAGE"] = "Mage"
 L["CLASS_WARLOCK"] = "Warlock"
 L["CLASS_DRUID"] = "Druid"
+
+-- Quality Names
+L["QUALITY_ALL"] = "All"
+L["QUALITY_POOR"] = "Poor"
+L["QUALITY_COMMON"] = "Common"
+L["QUALITY_UNCOMMON"] = "Uncommon"
+L["QUALITY_RARE"] = "Rare"
+L["QUALITY_EPIC"] = "Epic"
+L["QUALITY_LEGENDARY"] = "Legendary"
+L["QUALITY_HEIRLOOM"] = "Heirloom"
