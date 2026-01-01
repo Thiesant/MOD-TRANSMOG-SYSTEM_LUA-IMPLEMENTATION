@@ -200,6 +200,7 @@ L["SETTINGS_INFO"] = "Informations"
 
 -- Display Settings
 L["SETTING_BACKGROUND"] = "Fond de la cabine d'essayage :"
+L["SETTING_SET_PREVIEW_BG"] = "Fond de l'aperçu des ensembles :"
 L["SETTING_BG_AUTO"] = "Auto (Classe)"
 L["SETTING_PREVIEW_MODE"] = "Mode d'aperçu de la grille :"
 L["SETTING_PREVIEW_CLASSIC"] = "Classique (WoW 3.3.5)"
@@ -242,3 +243,21 @@ L["QUALITY_RARE"] = "Rare"
 L["QUALITY_EPIC"] = "Épique"
 L["QUALITY_LEGENDARY"] = "Légendaire"
 L["QUALITY_HEIRLOOM"] = "Héritage"
+
+-- Sets Preview Panel
+L["SETS_PREVIEW"] = "Ensembles"
+L["SETS_PREVIEW_TITLE"] = "Aperçu des Ensembles Sauvegardés"
+L["SETS_PREVIEW_TOOLTIP"] = "Aperçu des Ensembles"
+L["SETS_PREVIEW_DESC"] = "Voir tous vos ensembles de transmog sauvegardés avec l'aperçu en cabine d'essayage"
+L["NO_SETS_SAVED"] = "Aucun ensemble sauvegardé.\nUtilisez le bouton Sauver pour sauvegarder vos sélections actuelles."
+L["SETS_COUNT"] = "%d ensembles"
+L["SCROLL_INDICATOR"] = "Défilement: %d/%d"
+
+-- Copy Player Appearance
+L["COPY_PLAYER"] = "Copier Joueur"
+L["COPY_PLAYER_TOOLTIP"] = "Copier l'Apparence d'un Joueur"
+L["COPY_PLAYER_DESC"] = "Ciblez un joueur et cliquez pour copier son équipement visible dans votre sélection."
+L["COPY_PLAYER_PROMPT"] = "Entrez le nom du joueur à copier\n(ou ciblez d'abord un joueur):"
+L["COPY"] = "Copier"
+L["COPY_PLAYER_SUCCESS"] = "|cff00ff00[Transmog]|r %d objets copiés depuis l'apparence de %s."
+L["COPY_PLAYER_HINT"] = "|cff00ff00[Transmog]|r Utilisez le bouton Sauver pour enregistrer celui-ci comme ensemble."

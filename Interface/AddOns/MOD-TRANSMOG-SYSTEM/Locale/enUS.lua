@@ -200,6 +200,7 @@ L["SETTINGS_INFO"] = "Information"
 
 -- Display Settings
 L["SETTING_BACKGROUND"] = "Dressing Room Background:"
+L["SETTING_SET_PREVIEW_BG"] = "Set Preview Background:"
 L["SETTING_BG_AUTO"] = "Auto (Class)"
 L["SETTING_PREVIEW_MODE"] = "Grid Preview Mode:"
 L["SETTING_PREVIEW_CLASSIC"] = "Classic (WoW 3.3.5)"
@@ -242,3 +243,21 @@ L["QUALITY_RARE"] = "Rare"
 L["QUALITY_EPIC"] = "Epic"
 L["QUALITY_LEGENDARY"] = "Legendary"
 L["QUALITY_HEIRLOOM"] = "Heirloom"
+
+-- Sets Preview Panel
+L["SETS_PREVIEW"] = "Sets"
+L["SETS_PREVIEW_TITLE"] = "Saved Sets Preview"
+L["SETS_PREVIEW_TOOLTIP"] = "Saved Sets Preview"
+L["SETS_PREVIEW_DESC"] = "View all your saved transmog sets with dressing room preview"
+L["NO_SETS_SAVED"] = "No sets saved.\nUse the Save button to save your current selections as a set."
+L["SETS_COUNT"] = "%d sets"
+L["SCROLL_INDICATOR"] = "Scroll: %d/%d"
+
+-- Copy Player Appearance
+L["COPY_PLAYER"] = "Copy Player"
+L["COPY_PLAYER_TOOLTIP"] = "Copy Player Appearance"
+L["COPY_PLAYER_DESC"] = "Target a player and click to copy their visible equipment to your preview selection."
+L["COPY_PLAYER_PROMPT"] = "Enter player name to copy appearance\n(or target a player first):"
+L["COPY"] = "Copy"
+L["COPY_PLAYER_SUCCESS"] = "|cff00ff00[Transmog]|r Copied %d items from %s's appearance."
+L["COPY_PLAYER_HINT"] = "|cff00ff00[Transmog]|r Use the Save button to save this as a set."

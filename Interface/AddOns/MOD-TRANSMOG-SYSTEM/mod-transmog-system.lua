@@ -460,7 +460,7 @@ local selectedEnchantFrame = nil
 -- ============================================================================
 
 local transmogSets = {}  -- Cached sets from server: { [setNumber] = { name = "...", slots = {...} } }
-local MAX_SETS = 10
+local MAX_SETS = 12
 local selectedSetNumber = nil  -- Track currently selected set number
 
 -- ============================================================================
@@ -1177,6 +1177,10 @@ TRANSMOG_HANDLER.SetsData = function(player, data)
         if UpdateSetDropdown then
             UpdateSetDropdown()
         end
+        -- Refresh sets preview panel if visible
+        if setsPreviewPanel and setsPreviewPanel:IsShown() then
+            setsPreviewPanel:RefreshSetsPreview()
+        end
     end)
 end
 
@@ -1194,6 +1198,11 @@ TRANSMOG_HANDLER.SetSaved = function(player, data)
     -- Update dropdown
     if UpdateSetDropdown then
         UpdateSetDropdown()
+    end
+    
+    -- Refresh sets preview panel if visible
+    if setsPreviewPanel and setsPreviewPanel:IsShown() then
+        setsPreviewPanel:RefreshSetsPreview()
     end
 end
 
@@ -1238,6 +1247,11 @@ TRANSMOG_HANDLER.SetDeleted = function(player, data)
     if UpdateSetDropdown then
         UpdateSetDropdown()
     end
+    
+    -- Refresh sets preview panel if visible
+    if setsPreviewPanel and setsPreviewPanel:IsShown() then
+        setsPreviewPanel:RefreshSetsPreview()
+    end
 end
 
 TRANSMOG_HANDLER.SetApplied = function(player, data)
@@ -1262,6 +1276,40 @@ end
 
 TRANSMOG_HANDLER.SetError = function(player, errorMsg)
     print(string.format("|cffff0000[Transmog]|r %s", errorMsg or L["SET_ERROR"]))
+end
+
+-- Copy Player Appearance Handler
+TRANSMOG_HANDLER.PlayerAppearanceCopied = function(player, data)
+    if not data then return end
+    
+    if data.error then
+        print(string.format("|cffff0000[Transmog]|r %s", data.error))
+        return
+    end
+    
+    -- Clear current selections
+    slotSelectedItems = {}
+    
+    -- Apply copied items to preview selection
+    local copiedCount = 0
+    for slotName, config in pairs(SLOT_CONFIG) do
+        local equipSlot = config.equipSlot
+        local itemId = data.slots and data.slots[equipSlot]
+        if itemId and itemId > 0 then
+            slotSelectedItems[slotName] = itemId
+            copiedCount = copiedCount + 1
+        end
+    end
+    
+    -- Update dressing room with copied appearance
+    RefreshDressingRoomModel(slotSelectedItems)
+    
+    -- Update grid to show cyan highlights
+    UpdatePreviewGrid()
+    
+    -- Show success message
+    print(string.format(L["COPY_PLAYER_SUCCESS"] or "|cff00ff00[Transmog]|r Copied %d items from %s's appearance.", copiedCount, data.playerName or "player"))
+    print(L["COPY_PLAYER_HINT"] or "|cff00ff00[Transmog]|r Use the Save button to save this as a set.")
 end
 
 -- ============================================================================
@@ -3748,6 +3796,35 @@ local function CreateSettingsPanel(parent)
     
     yOffset = yOffset - 10
     
+    -- Set Preview Background dropdown (character-specific)
+    local setPreviewBgOptions = {
+        { value = nil, label = L["SETTING_BG_AUTO"] or "Auto (Class)" },
+        { value = "WARRIOR", label = L["CLASS_WARRIOR"] or "Warrior" },
+        { value = "PALADIN", label = L["CLASS_PALADIN"] or "Paladin" },
+        { value = "HUNTER", label = L["CLASS_HUNTER"] or "Hunter" },
+        { value = "ROGUE", label = L["CLASS_ROGUE"] or "Rogue" },
+        { value = "PRIEST", label = L["CLASS_PRIEST"] or "Priest" },
+        { value = "DEATHKNIGHT", label = L["CLASS_DEATHKNIGHT"] or "Death Knight" },
+        { value = "SHAMAN", label = L["CLASS_SHAMAN"] or "Shaman" },
+        { value = "MAGE", label = L["CLASS_MAGE"] or "Mage" },
+        { value = "WARLOCK", label = L["CLASS_WARLOCK"] or "Warlock" },
+        { value = "DRUID", label = L["CLASS_DRUID"] or "Druid" },
+    }
+    CreateSettingsDropdown(
+        L["SETTING_SET_PREVIEW_BG"] or "Set Preview Background:",
+        setPreviewBgOptions,
+        "setPreviewBackground",
+        true,  -- Character-specific
+        function(value)
+            -- Update all set preview backgrounds immediately
+            if mainFrame and mainFrame.setsPreviewPanel then
+                mainFrame.setsPreviewPanel:UpdateAllBackgrounds(value)
+            end
+        end
+    )
+    
+    yOffset = yOffset - 10
+    
     -- Preview mode dropdown (character-specific)
     local previewModeOptions = {
         { value = "classic", label = L["SETTING_PREVIEW_CLASSIC"] or "Classic (WoW 3.3.5)" },
@@ -3814,6 +3891,504 @@ local function CreateSettingsPanel(parent)
     
     return frame
 end
+
+-- ============================================================================
+-- Sets Preview Panel
+-- ============================================================================
+
+local setsPreviewPanel = nil
+local isSetsPreviewVisible = false
+local setsPreviewModels = {}
+local setsPreviewSlotFrames = {}
+
+-- Slot order for set preview display
+local SET_PREVIEW_SLOT_ORDER = {
+    { name = "Head",          equipSlot = 0 },
+    { name = "Shoulder",      equipSlot = 2 },
+    { name = "Back",          equipSlot = 14 },
+    { name = "Chest",         equipSlot = 4 },
+    { name = "Shirt",         equipSlot = 3 },
+    { name = "Tabard",        equipSlot = 18 },
+    { name = "Wrist",         equipSlot = 8 },
+    { name = "Hands",         equipSlot = 9 },
+    { name = "Waist",         equipSlot = 5 },
+    { name = "Legs",          equipSlot = 6 },
+    { name = "Feet",          equipSlot = 7 },
+    { name = "MainHand",      equipSlot = 15 },
+    { name = "SecondaryHand", equipSlot = 16 },
+    { name = "Ranged",        equipSlot = 17 },
+}
+
+local function CreateSetPreviewEntry(parent, index, setNumber, setData)
+    -- Each entry: Dressing room model (left) + Slot grid with icons and names (right)
+    local entryFrame = CreateFrame("Frame", nil, parent)
+    entryFrame:SetSize(295, 200)
+    entryFrame.setNumber = setNumber
+    
+    -- Set name label at top
+    local nameLabel = entryFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    nameLabel:SetPoint("TOP", entryFrame, "TOP", -40, 0)
+    nameLabel:SetText(setData and setData.name or (L["SET_DEFAULT_NAME"] and string.format(L["SET_DEFAULT_NAME"], setNumber) or string.format("Set %d", setNumber)))
+    nameLabel:SetTextColor(1, 0.82, 0)
+    entryFrame.nameLabel = nameLabel
+    
+    -- Dressing room model frame with background
+    local modelFrame = CreateFrame("Frame", nil, entryFrame)
+    modelFrame:SetSize(130, 175)
+    modelFrame:SetPoint("TOPLEFT", 5, -18)
+    
+    -- Background texture (class-based)
+    local _, playerClass = UnitClass("player")
+    local backgroundClass = GetSetting("setPreviewBackground") or playerClass
+    local texturePath = TEXTURE_PATHS[backgroundClass] or TEXTURE_PATHS[playerClass] or TEXTURE_PATHS.WARLOCK
+    
+    local bgTexture = modelFrame:CreateTexture(nil, "BACKGROUND")
+    bgTexture:SetPoint("TOPLEFT", 2, -2)
+    bgTexture:SetPoint("BOTTOMRIGHT", -2, 2)
+    bgTexture:SetTexture(texturePath)
+    
+    -- Calculate cropping for the smaller frame (130x175)
+    local frameWidth, frameHeight = 130, 175
+    local frameAspect = frameWidth / frameHeight  -- ~0.74
+    local cropWidth = frameAspect
+    local left = (1 - cropWidth) / 2
+    local right = 1 - left
+    bgTexture:SetTexCoord(left, right, 0, 1)
+    
+    modelFrame.bgTexture = bgTexture
+    modelFrame.texCoordLeft = left
+    modelFrame.texCoordRight = right
+    
+    -- Border only (no background fill since we have texture)
+    modelFrame:SetBackdrop({
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 12,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 }
+    })
+    modelFrame:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+    
+    -- Update background function
+    function modelFrame:UpdateBackground(overrideClass)
+        local _, currentClass = UnitClass("player")
+        local bgClass = overrideClass or GetSetting("setPreviewBackground") or currentClass
+        local newTexturePath = TEXTURE_PATHS[bgClass] or TEXTURE_PATHS[currentClass] or TEXTURE_PATHS.WARLOCK
+        self.bgTexture:SetTexture(newTexturePath)
+        self.bgTexture:SetTexCoord(self.texCoordLeft, self.texCoordRight, 0, 1)
+    end
+    
+    -- Create dress up model with proper positioning
+    local model = CreateFrame("DressUpModel", nil, modelFrame)
+    model:SetPoint("TOPLEFT", modelFrame, "TOPLEFT", 2, -2)
+    model:SetPoint("BOTTOMRIGHT", modelFrame, "BOTTOMRIGHT", -2, 2)
+    model:SetUnit("player")
+    model:SetRotation(0)
+    -- Position model up and back to fit in frame (x=zoom, y=horizontal, z=vertical)
+    model:SetPosition(-0.2, 0, -0.1)
+    
+    -- Mouse interaction for rotating
+    local isRotating = false
+    local lastX = 0
+    
+    model:EnableMouse(true)
+    model:EnableMouseWheel(true)
+    
+    model:SetScript("OnMouseDown", function(self, button)
+        if button == "LeftButton" then
+            isRotating = true
+            lastX = GetCursorPosition()
+        end
+    end)
+    
+    model:SetScript("OnMouseUp", function(self, button)
+        if button == "LeftButton" then
+            isRotating = false
+        end
+    end)
+    
+    model:SetScript("OnUpdate", function(self)
+        if isRotating then
+            local x = GetCursorPosition()
+            local dx = x - lastX
+            local rotation = self:GetFacing() + dx * 0.02
+            self:SetFacing(rotation)
+            lastX = x
+        end
+    end)
+    
+    model:SetScript("OnMouseWheel", function(self, delta)
+        -- Zoom by adjusting camera distance
+        local x, y, z = self:GetPosition()
+        x = x + delta * 0.3
+        x = math.max(-1, math.min(3, x))
+        self:SetPosition(x, y, z)
+    end)
+    
+    entryFrame.model = model
+    entryFrame.modelFrame = modelFrame
+    
+    -- Slot icons and names container (right side of model)
+    local slotsContainer = CreateFrame("Frame", nil, entryFrame)
+    slotsContainer:SetSize(145, 180)
+    slotsContainer:SetPoint("LEFT", modelFrame, "RIGHT", 5, 0)
+    
+    entryFrame.slotIcons = {}
+    entryFrame.slotNames = {}
+    
+    local slotHeight = 13
+    local slotSpacing = 0
+    
+    for i, slotInfo in ipairs(SET_PREVIEW_SLOT_ORDER) do
+        local yPos = -((i - 1) * (slotHeight + slotSpacing))
+        
+        -- Slot icon
+        local iconFrame = CreateFrame("Frame", nil, slotsContainer)
+        iconFrame:SetSize(13, 13)
+        iconFrame:SetPoint("TOPLEFT", 0, yPos)
+        
+        local icon = iconFrame:CreateTexture(nil, "ARTWORK")
+        icon:SetAllPoints()
+        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        
+        -- Get item from set data
+        local itemId = setData and setData.slots and setData.slots[slotInfo.equipSlot]
+        if itemId and itemId > 0 then
+            local _, _, _, _, _, _, _, _, _, itemTexture = GetItemInfo(itemId)
+            if itemTexture then
+                icon:SetTexture(itemTexture)
+            else
+                icon:SetTexture("Interface\\PaperDoll\\UI-PaperDoll-Slot-" .. (SLOT_CONFIG[slotInfo.name] and SLOT_CONFIG[slotInfo.name].texture or "Chest"))
+                -- Queue item info load
+                GameTooltip:SetHyperlink("item:" .. itemId)
+                GameTooltip:Hide()
+            end
+            
+            -- Tooltip on hover
+            iconFrame:EnableMouse(true)
+            iconFrame:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetHyperlink("item:" .. itemId)
+                GameTooltip:Show()
+            end)
+            iconFrame:SetScript("OnLeave", GameTooltip_Hide)
+        else
+            -- Empty slot - show slot texture
+            icon:SetTexture("Interface\\PaperDoll\\UI-PaperDoll-Slot-" .. (SLOT_CONFIG[slotInfo.name] and SLOT_CONFIG[slotInfo.name].texture or "Chest"))
+            icon:SetVertexColor(0.3, 0.3, 0.3, 0.5)
+        end
+        
+        iconFrame.icon = icon
+        entryFrame.slotIcons[slotInfo.equipSlot] = iconFrame
+        
+        -- Item name
+        local nameText = slotsContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        nameText:SetPoint("LEFT", iconFrame, "RIGHT", 3, 0)
+        nameText:SetWidth(120)
+        nameText:SetJustifyH("LEFT")
+        nameText:SetWordWrap(false)
+        
+        if itemId and itemId > 0 then
+            local itemName, itemLink = GetItemInfo(itemId)
+            if itemName then
+                -- Get quality color
+                local _, _, quality = GetItemInfo(itemId)
+                local color = ITEM_QUALITY_COLORS[quality or 1]
+                nameText:SetText(itemName)
+                if color then
+                    nameText:SetTextColor(color.r, color.g, color.b)
+                end
+            else
+                nameText:SetText("Loading...")
+                nameText:SetTextColor(0.5, 0.5, 0.5)
+                -- Try to load item info
+                C_Timer.After(0.5, function()
+                    local name, link, q = GetItemInfo(itemId)
+                    if name then
+                        nameText:SetText(name)
+                        local c = ITEM_QUALITY_COLORS[q or 1]
+                        if c then nameText:SetTextColor(c.r, c.g, c.b) end
+                    else
+                        nameText:SetText("[Item " .. itemId .. "]")
+                    end
+                end)
+            end
+        else
+            nameText:SetText("|cff666666" .. (L[slotInfo.name] or slotInfo.name) .. "|r")
+        end
+        
+        entryFrame.slotNames[slotInfo.equipSlot] = nameText
+    end
+    
+    entryFrame.slotsContainer = slotsContainer
+    
+    -- Function to apply set items to model
+    function entryFrame:ApplySetToModel(setDataToApply)
+        if not setDataToApply or not setDataToApply.slots then return end
+        
+        -- Reset model
+        self.model:Undress()
+        self.model:SetUnit("player")
+        
+        -- Apply each item via TryOn
+        C_Timer.After(0.05, function()
+            for equipSlot, itemId in pairs(setDataToApply.slots) do
+                if itemId and itemId > 0 then
+                    self.model:TryOn(itemId)
+                end
+            end
+        end)
+        
+        -- Update name
+        if setDataToApply.name then
+            self.nameLabel:SetText(setDataToApply.name)
+        end
+        
+        -- Update slot icons and names
+        for _, slotInfo in ipairs(SET_PREVIEW_SLOT_ORDER) do
+            local itemId = setDataToApply.slots[slotInfo.equipSlot]
+            local iconFrame = self.slotIcons[slotInfo.equipSlot]
+            local nameText = self.slotNames[slotInfo.equipSlot]
+            
+            if itemId and itemId > 0 then
+                local _, _, quality, _, _, _, _, _, _, itemTexture = GetItemInfo(itemId)
+                if itemTexture then
+                    iconFrame.icon:SetTexture(itemTexture)
+                    iconFrame.icon:SetVertexColor(1, 1, 1, 1)
+                end
+                
+                local itemName = GetItemInfo(itemId)
+                if itemName then
+                    nameText:SetText(itemName)
+                    local c = ITEM_QUALITY_COLORS[quality or 1]
+                    if c then nameText:SetTextColor(c.r, c.g, c.b) end
+                end
+                
+                -- Enable tooltip
+                iconFrame:EnableMouse(true)
+                iconFrame:SetScript("OnEnter", function(self)
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetHyperlink("item:" .. itemId)
+                    GameTooltip:Show()
+                end)
+                iconFrame:SetScript("OnLeave", GameTooltip_Hide)
+            else
+                iconFrame.icon:SetTexture("Interface\\PaperDoll\\UI-PaperDoll-Slot-" .. (SLOT_CONFIG[slotInfo.name] and SLOT_CONFIG[slotInfo.name].texture or "Chest"))
+                iconFrame.icon:SetVertexColor(0.3, 0.3, 0.3, 0.5)
+                nameText:SetText("|cff666666" .. (L[slotInfo.name] or slotInfo.name) .. "|r")
+                iconFrame:EnableMouse(false)
+            end
+        end
+    end
+    
+    -- Apply initial set data
+    if setData then
+        entryFrame:ApplySetToModel(setData)
+    end
+    
+    return entryFrame
+end
+
+local function CreateSetsPreviewPanel(parent)
+    local frame = CreateFrame("Frame", "$parentSetsPreviewPanel", parent)
+    frame:SetSize(620, 460)  -- Same size as preview grid
+    frame:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, 
+        tileSize = 16, 
+        edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 }
+    })
+    frame:SetBackdropColor(0.1, 0.1, 0.1, 0.95)
+    frame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
+    frame:Hide()  -- Hidden by default
+    
+    -- Title - centered
+    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOP", frame, "TOP", 0, -10)
+    title:SetText(L["SETS_PREVIEW_TITLE"] or "Saved Sets Preview")
+    title:SetTextColor(1, 0.82, 0)
+    
+    -- Copy Player button (aligned with title on left)
+    local copyPlayerBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    copyPlayerBtn:SetSize(100, 20)
+    copyPlayerBtn:SetPoint("LEFT", frame, "TOPLEFT", 10, -17)
+    copyPlayerBtn:SetText(L["COPY_PLAYER"] or "Copy Player")
+    copyPlayerBtn:SetScript("OnClick", function()
+        StaticPopup_Show("TRANSMOG_COPY_PLAYER")
+    end)
+    copyPlayerBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(L["COPY_PLAYER_TOOLTIP"] or "Copy Player Appearance")
+        GameTooltip:AddLine(L["COPY_PLAYER_DESC"] or "Target a player and click to copy their visible equipment to your preview selection.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    copyPlayerBtn:SetScript("OnLeave", GameTooltip_Hide)
+    frame.copyPlayerBtn = copyPlayerBtn
+    
+    -- Direct content frame (NO scroll - models break in scroll frames)
+    local content = CreateFrame("Frame", "TransmogSetsPreviewContent", frame)
+    content:SetPoint("TOPLEFT", frame, "TOPLEFT", 5, -35)
+    content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -5, 5)
+    content:SetFrameLevel(frame:GetFrameLevel() + 1)
+    content:Show()
+    
+    frame.content = content
+    frame.setEntries = {}
+    frame.sortedSets = {}
+    frame.currentSetPage = 1
+    frame.setsPerPage = 4
+    
+    -- Function to update all entry backgrounds
+    function frame:UpdateAllBackgrounds(overrideClass)
+        for _, entry in ipairs(self.setEntries) do
+            if entry.modelFrame and entry.modelFrame.UpdateBackground then
+                entry.modelFrame:UpdateBackground(overrideClass)
+            end
+        end
+    end
+    
+    -- Function to refresh sets preview
+    function frame:RefreshSetsPreview()
+        -- Clear sorted sets
+        wipe(self.sortedSets)
+        
+        -- Collect sets
+        for i = 1, MAX_SETS do
+            if transmogSets[i] then
+                table.insert(self.sortedSets, { number = i, data = transmogSets[i] })
+            end
+        end
+        
+        -- Show first page
+        self.currentSetPage = 1
+        self:ShowSetPage(1)
+    end
+    
+    -- Function to show a specific page of sets
+    function frame:ShowSetPage(pageNum)
+        -- Clear existing entries
+        for _, entry in ipairs(self.setEntries) do
+            entry:Hide()
+            entry:SetParent(nil)
+        end
+        wipe(self.setEntries)
+        
+        local setCount = #self.sortedSets
+        local totalPages = math.max(1, math.ceil(setCount / self.setsPerPage))
+        
+        -- Clamp page
+        pageNum = math.max(1, math.min(pageNum, totalPages))
+        self.currentSetPage = pageNum
+        
+        -- Handle empty state
+        if setCount == 0 then
+            if not self.noSetsText then
+                self.noSetsText = self.content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                self.noSetsText:SetPoint("CENTER", self.content, "CENTER", 0, 0)
+                self.noSetsText:SetText(L["NO_SETS_SAVED"] or "No sets saved.\nUse the Save button to save your current selections as a set.")
+                self.noSetsText:SetTextColor(0.7, 0.7, 0.7)
+            end
+            self.noSetsText:Show()
+            if mainFrame and mainFrame.pageText then
+                mainFrame.pageText:SetText(string.format(L["SETS_COUNT"] or "%d sets", 0))
+            end
+            return
+        end
+        
+        if self.noSetsText then
+            self.noSetsText:Hide()
+        end
+        
+        -- Calculate range for this page
+        local startIdx = (pageNum - 1) * self.setsPerPage + 1
+        local endIdx = math.min(startIdx + self.setsPerPage - 1, setCount)
+        
+        -- Grid layout
+        local entriesPerRow = 2
+        local entryWidth = 300
+        local entryHeight = 205
+        local colSpacing = 5
+        local rowSpacing = 5
+        
+        local pageIdx = 0
+        for idx = startIdx, endIdx do
+            local setInfo = self.sortedSets[idx]
+            local row = math.floor(pageIdx / entriesPerRow)
+            local col = pageIdx % entriesPerRow
+            
+            local entry = CreateSetPreviewEntry(self.content, pageIdx + 1, setInfo.number, setInfo.data)
+            entry:SetPoint("TOPLEFT", self.content, "TOPLEFT", col * (entryWidth + colSpacing), -(row * (entryHeight + rowSpacing)))
+            entry:Show()
+            
+            table.insert(self.setEntries, entry)
+            pageIdx = pageIdx + 1
+        end
+        
+        -- Update external page text
+        if mainFrame and mainFrame.pageText then
+            if totalPages > 1 then
+                mainFrame.pageText:SetText(string.format(L["PAGE"] or "Page %d/%d", pageNum, totalPages) .. " | " .. string.format(L["SETS_COUNT"] or "%d sets", setCount))
+            else
+                mainFrame.pageText:SetText(string.format(L["SETS_COUNT"] or "%d sets", setCount))
+            end
+        end
+    end
+    
+    -- Page change function
+    function frame:ChangeSetPage(delta)
+        local totalPages = math.max(1, math.ceil(#self.sortedSets / self.setsPerPage))
+        local newPage = self.currentSetPage + delta
+        if newPage >= 1 and newPage <= totalPages then
+            self:ShowSetPage(newPage)
+        end
+    end
+    
+    -- Mouse wheel for page navigation
+    frame:EnableMouseWheel(true)
+    frame:SetScript("OnMouseWheel", function(self, delta)
+        self:ChangeSetPage(-delta)
+    end)
+    
+    return frame
+end
+
+-- ============================================================================
+-- Copy Player Appearance Dialog
+-- ============================================================================
+
+StaticPopupDialogs["TRANSMOG_COPY_PLAYER"] = {
+    text = L["COPY_PLAYER_PROMPT"] or "Enter player name to copy appearance\n(or target a player first):",
+    button1 = L["COPY"] or "Copy",
+    button2 = CANCEL,
+    hasEditBox = true,
+    maxLetters = 32,
+    OnShow = function(self)
+        -- Pre-fill with target name if targeting a player
+        local targetName = UnitName("target")
+        if targetName and UnitIsPlayer("target") then
+            self.editBox:SetText(targetName)
+        else
+            self.editBox:SetText("")
+        end
+        self.editBox:SetFocus()
+    end,
+    OnAccept = function(self)
+        local playerName = self.editBox:GetText():trim()
+        if playerName and playerName ~= "" then
+            -- Request copy from server
+            AIO.Msg():Add("TRANSMOG", "CopyPlayerAppearance", playerName):Send()
+        end
+    end,
+    EditBoxOnEnterPressed = function(self)
+        local parent = self:GetParent()
+        StaticPopupDialogs["TRANSMOG_COPY_PLAYER"].OnAccept(parent)
+        parent:Hide()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
 
 -- ============================================================================
 -- Main Frame
@@ -3903,8 +4478,8 @@ local function CreateMainFrame()
             modeToggleButton.Icon:SetTexture("Interface\\Icons\\INV_Fabric_Silk_02")
             modeToggleButton.ModeText:SetText(L["MODE_ITEM"] or "Items")
             modeToggleButton.ModeText:SetTextColor(1, 1, 1)
-            -- Only show dropdowns/searchbar if settings is not visible
-            if not isSettingsVisible then
+            -- Only show dropdowns/searchbar if settings or sets preview is not visible
+            if not isSettingsVisible and not isSetsPreviewVisible then
                 if subclassDropdown then subclassDropdown:Show() end
                 if qualityDropdown then qualityDropdown:Show() end
                 if collectionFilterDropdown then collectionFilterDropdown:Show() end
@@ -3998,6 +4573,11 @@ local function CreateMainFrame()
     settingsPanel = CreateSettingsPanel(frame)
     settingsPanel:SetPoint("TOPLEFT", 355, -55)
     frame.settingsPanel = settingsPanel
+    
+    -- Create sets preview panel (same position as grid, hidden by default)
+    setsPreviewPanel = CreateSetsPreviewPanel(frame)
+    setsPreviewPanel:SetPoint("TOPLEFT", 355, -55)
+    frame.setsPreviewPanel = setsPreviewPanel
     
     local resetBtn = CreateFrame("Button", "$parentReset", frame, "UIPanelButtonTemplate")
     resetBtn:SetSize(65, 22)
@@ -4157,13 +4737,56 @@ local function CreateMainFrame()
     settingsBtn:SetPoint("TOPRIGHT", previewGrid, "TOPRIGHT", 0, 25)
     settingsBtn:SetText(L["SETTINGS"] or "Settings")
     
+    -- ========================================
+    -- Sets Preview Button (left of Settings button)
+    -- ========================================
+    local setsPreviewBtn = CreateFrame("Button", "TransmogSetsPreviewButton", frame, "UIPanelButtonTemplate")
+    setsPreviewBtn:SetSize(50, 22)
+    setsPreviewBtn:SetPoint("RIGHT", settingsBtn, "LEFT", -5, 0)
+    setsPreviewBtn:SetText(L["SETS_PREVIEW"] or "Sets")
+    
+    -- Helper function to return to grid view
+    local function ShowGridView()
+        -- Hide all panels
+        settingsPanel:Hide()
+        setsPreviewPanel:Hide()
+        
+        -- Show grid elements
+        previewGrid:Show()
+        searchBar:Show()
+        pageContainer:Show()
+        
+        -- Show dropdowns (only in item mode)
+        if currentTransmogMode == TRANSMOG_MODE_ITEM then
+            if subclassDropdown then subclassDropdown:Show() end
+            if qualityDropdown then qualityDropdown:Show() end
+            if collectionFilterDropdown then collectionFilterDropdown:Show() end
+        end
+        
+        -- Reset button texts
+        settingsBtn:SetText(L["SETTINGS"] or "Settings")
+        setsPreviewBtn:SetText(L["SETS_PREVIEW"] or "Sets")
+        
+        -- Reset visibility states
+        isSettingsVisible = false
+        isSetsPreviewVisible = false
+        
+        -- Refresh grid
+        UpdatePreviewGrid()
+    end
+    
     -- Toggle function for settings
     local function ToggleSettings()
-        isSettingsVisible = not isSettingsVisible
-        
         if isSettingsVisible then
-            -- Show settings, hide grid-related elements
+            -- Going back to grid
+            ShowGridView()
+        else
+            -- Show settings
+            isSetsPreviewVisible = false
+            isSettingsVisible = true
+            
             previewGrid:Hide()
+            setsPreviewPanel:Hide()
             settingsPanel:Show()
             searchBar:Hide()
             pageContainer:Hide()
@@ -4173,27 +4796,41 @@ local function CreateMainFrame()
             if qualityDropdown then qualityDropdown:Hide() end
             if collectionFilterDropdown then collectionFilterDropdown:Hide() end
             
-            -- Update button text
+            -- Update button texts
             settingsBtn:SetText(L["BACK"] or "Back")
+            setsPreviewBtn:SetText(L["SETS_PREVIEW"] or "Sets")
+        end
+        
+        PlaySound("igMainMenuOptionCheckBoxOn")
+    end
+    
+    -- Toggle function for sets preview
+    local function ToggleSetsPreview()
+        if isSetsPreviewVisible then
+            -- Going back to grid
+            ShowGridView()
         else
-            -- Show grid, hide settings
+            -- Show sets preview
+            isSettingsVisible = false
+            isSetsPreviewVisible = true
+            
+            previewGrid:Hide()
             settingsPanel:Hide()
-            previewGrid:Show()
-            searchBar:Show()
-            pageContainer:Show()
+            setsPreviewPanel:Show()
+            searchBar:Hide()
+            pageContainer:Show()  -- Show page container below sets panel
             
-            -- Show dropdowns (only in item mode)
-            if currentTransmogMode == TRANSMOG_MODE_ITEM then
-                if subclassDropdown then subclassDropdown:Show() end
-                if qualityDropdown then qualityDropdown:Show() end
-                if collectionFilterDropdown then collectionFilterDropdown:Show() end
-            end
+            -- Hide dropdowns
+            if subclassDropdown then subclassDropdown:Hide() end
+            if qualityDropdown then qualityDropdown:Hide() end
+            if collectionFilterDropdown then collectionFilterDropdown:Hide() end
             
-            -- Update button text
+            -- Update button texts
             settingsBtn:SetText(L["SETTINGS"] or "Settings")
+            setsPreviewBtn:SetText(L["BACK"] or "Back")
             
-            -- Refresh grid in case settings changed
-            UpdatePreviewGrid()
+            -- Refresh sets preview (handles pageText update)
+            setsPreviewPanel:RefreshSetsPreview()
         end
         
         PlaySound("igMainMenuOptionCheckBoxOn")
@@ -4213,8 +4850,25 @@ local function CreateMainFrame()
     end)
     settingsBtn:SetScript("OnLeave", GameTooltip_Hide)
     
+    setsPreviewBtn:SetScript("OnClick", ToggleSetsPreview)
+    setsPreviewBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        if isSetsPreviewVisible then
+            GameTooltip:SetText(L["BACK_TOOLTIP"] or "Back to Items")
+            GameTooltip:AddLine(L["BACK_DESC"] or "Click to return to item grid", 1, 1, 1)
+        else
+            GameTooltip:SetText(L["SETS_PREVIEW_TOOLTIP"] or "Saved Sets Preview")
+            GameTooltip:AddLine(L["SETS_PREVIEW_DESC"] or "View all your saved transmog sets with dressing room preview", 1, 1, 1)
+        end
+        GameTooltip:Show()
+    end)
+    setsPreviewBtn:SetScript("OnLeave", GameTooltip_Hide)
+    
     frame.settingsBtn = settingsBtn
+    frame.setsPreviewBtn = setsPreviewBtn
     frame.ToggleSettings = ToggleSettings
+    frame.ToggleSetsPreview = ToggleSetsPreview
+    frame.ShowGridView = ShowGridView
     
     tinsert(UISpecialFrames, frame:GetName())
     

@@ -1,5 +1,5 @@
 -- [Author : Thiesant] This script is free, if you bought it you got scammed.
--- v0.4
+-- v0.6
     -- ============================================================================
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -1541,7 +1541,7 @@ if ENABLE_AIO_BRIDGE then
     
     -- Save a new set or update existing
     TRANSMOG_HANDLER.SaveSet = function(player, setNumber, setName, slotData)
-        if not setNumber or setNumber < 1 or setNumber > 10 then
+        if not setNumber or setNumber < 1 or setNumber > 12 then
             AIO.Msg():Add("TRANSMOG", "SetError", "Invalid set number"):Send(player)
             return
         end
@@ -1577,7 +1577,7 @@ if ENABLE_AIO_BRIDGE then
     
     -- Load a set (preview only, returns data to client) - async version
     TRANSMOG_HANDLER.LoadSet = function(player, setNumber)
-        if not setNumber or setNumber < 1 or setNumber > 10 then
+        if not setNumber or setNumber < 1 or setNumber > 12 then
             AIO.Msg():Add("TRANSMOG", "SetError", "Invalid set number"):Send(player)
             return
         end
@@ -1601,7 +1601,7 @@ if ENABLE_AIO_BRIDGE then
     
     -- Delete a set
     TRANSMOG_HANDLER.DeleteSet = function(player, setNumber)
-        if not setNumber or setNumber < 1 or setNumber > 10 then
+        if not setNumber or setNumber < 1 or setNumber > 12 then
             AIO.Msg():Add("TRANSMOG", "SetError", "Invalid set number"):Send(player)
             return
         end
@@ -1614,7 +1614,7 @@ if ENABLE_AIO_BRIDGE then
     
     -- Apply a set (only items in collection will be applied) - async version
     TRANSMOG_HANDLER.ApplySet = function(player, setNumber)
-        if not setNumber or setNumber < 1 or setNumber > 10 then
+        if not setNumber or setNumber < 1 or setNumber > 12 then
             AIO.Msg():Add("TRANSMOG", "SetError", "Invalid set number"):Send(player)
             return
         end
@@ -1677,6 +1677,76 @@ if ENABLE_AIO_BRIDGE then
                 }))
             end)
         end)
+    end
+    
+    -- Copy another player's visible appearance
+    TRANSMOG_HANDLER.CopyPlayerAppearance = function(player, targetPlayerName)
+        if not targetPlayerName or targetPlayerName == "" then
+            AIO.Msg():Add("TRANSMOG", "PlayerAppearanceCopied", { error = "Invalid player name" }):Send(player)
+            return
+        end
+        
+        -- Find the target player
+        local targetPlayer = GetPlayerByName(targetPlayerName)
+        if not targetPlayer then
+            AIO.Msg():Add("TRANSMOG", "PlayerAppearanceCopied", { error = "Player not found or offline: " .. targetPlayerName }):Send(player)
+            return
+        end
+        
+        -- Non-transmog eligible ranged subclasses (relics: libram, idol, totem, sigil)
+        -- These are Armor class (4) subclasses 7-10
+        local RELIC_SUBCLASSES = { [7] = true, [8] = true, [9] = true, [10] = true }
+        
+        -- Helper to check if an item is transmog-eligible for ranged slot
+        local function IsRangedTransmogEligible(item)
+            if not item then return false end
+            local itemClass = item:GetClass()
+            local itemSubclass = item:GetSubClass()
+            
+            -- Armor class with relic subclass = not eligible
+            if itemClass == 4 and RELIC_SUBCLASSES[itemSubclass] then
+                return false
+            end
+            return true
+        end
+        
+        -- Get target player's visible equipment
+        local slots = {}
+        local equipmentSlots = {0, 2, 3, 4, 5, 6, 7, 8, 9, 14, 15, 16, 17, 18}  -- All transmog-eligible slots
+        
+        for _, slotId in ipairs(equipmentSlots) do
+            local item = targetPlayer:GetItemByPos(255, slotId)
+            if item then
+                -- Skip ranged slot if item is a relic (not transmog-eligible)
+                if slotId == 17 and not IsRangedTransmogEligible(item) then
+                    -- Skip this slot - relics can't be transmogged
+                else
+                    -- Check if target has an active transmog on this slot
+                    local transmogEntry = nil
+                    local field = PLAYER_VISIBLE_ITEM_FIELDS[slotId]
+                    if field then
+                        transmogEntry = targetPlayer:GetUInt32Value(field)
+                        if transmogEntry and transmogEntry > 0 then
+                            slots[slotId] = transmogEntry
+                        else
+                            -- No transmog, use the actual item
+                            slots[slotId] = item:GetEntry()
+                        end
+                    else
+                        -- No visual field, use actual item
+                        slots[slotId] = item:GetEntry()
+                    end
+                end
+            end
+        end
+        
+        -- Send the copied appearance to the requesting player
+        AIO.Msg():Add("TRANSMOG", "PlayerAppearanceCopied", {
+            playerName = targetPlayerName,
+            slots = slots
+        }):Send(player)
+        
+        DebugPrint(string.format("[Transmog] %s copied appearance from %s", player:GetName(), targetPlayerName))
     end
    
     -- ============================================================================
