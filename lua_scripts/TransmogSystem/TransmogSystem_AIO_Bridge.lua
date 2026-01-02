@@ -557,7 +557,8 @@ if ENABLE_AIO_BRIDGE then
         if not PlayerActiveTransmogCache[guid] then
             PlayerActiveTransmogCache[guid] = { transmogs = {}, enchants = {} }
         end
-        if itemId and itemId > 0 then
+        if itemId ~= nil then
+            -- itemId = 0 means hidden slot, itemId > 0 means transmog
             PlayerActiveTransmogCache[guid].transmogs[slot] = itemId
         else
             PlayerActiveTransmogCache[guid].transmogs[slot] = nil
@@ -589,9 +590,9 @@ if ENABLE_AIO_BRIDGE then
                     repeat
                         local slot = Q:GetUInt8(0)
                         local itemId = Q:GetUInt32(1)
-                        if itemId > 0 then
-                            transmogs[slot] = itemId
-                        end
+                        -- itemId = 0 means hidden slot, itemId > 0 means transmog
+                        -- Both are valid and should be loaded
+                        transmogs[slot] = itemId
                     until not Q:NextRow()
                 end
                 -- Update session cache
