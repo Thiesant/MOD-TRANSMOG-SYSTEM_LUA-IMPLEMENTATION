@@ -219,6 +219,10 @@ L["SETTING_HIDE_HAIR_CHEST"] = "Masquer cheveux/barbe sur l'aperçu des torses"
 L["SETTING_HIDE_HAIR_SHIRT"] = "Masquer cheveux/barbe sur l'aperçu des chemises"
 L["SETTING_HIDE_HAIR_TABARD"] = "Masquer cheveux/barbe sur l'aperçu des tabards"
 
+-- Border Settings
+L["SETTINGS_UI"] = "Paramètres de l'interface utilisateur"
+L["SETTING_SHOW_TRANSMOG_BORDERS"] = "Afficher les bordures de transmogrification dans les cadres de Personnage/Inspection"
+
 -- Settings Info
 L["SETTINGS_INFO_TEXT"] = "|cff888888Paramètres globaux|r s'appliquent à tous les personnages.\n|cff888888Paramètres par personnage|r (fond, mode d'aperçu) sont sauvegardés par personnage.\n\nLes paramètres sont sauvegardés automatiquement."
 

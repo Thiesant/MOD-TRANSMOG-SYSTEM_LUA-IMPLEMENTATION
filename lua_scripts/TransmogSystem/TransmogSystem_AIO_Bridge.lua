@@ -1289,6 +1289,39 @@ if ENABLE_AIO_BRIDGE then
         end)
     end
     
+    -- Request another player's active transmogs (for inspect frame)
+    TRANSMOG_HANDLER.RequestInspectTransmogs = function(player, targetName)
+        if not targetName or targetName == "" then return end
+        
+        local playerName = player:GetName()
+        
+        -- Find the target player
+        local targetPlayer = GetPlayerByName(targetName)
+        if not targetPlayer then
+            -- Player not found or offline
+            SafeSendToPlayer(playerName, AIO.Msg():Add("TRANSMOG", "InspectTransmogs", { 
+                targetName = targetName, 
+                transmogs = {},
+                enchants = {}
+            }))
+            return
+        end
+        
+        local targetGuid = targetPlayer:GetGUIDLow()
+        
+        -- Get target's active transmogs
+        GetActiveTransmogsAsync(targetGuid, function(transmogs)
+            -- Also get enchant transmogs
+            GetActiveEnchantTransmogsAsync(targetGuid, function(enchants)
+                SafeSendToPlayer(playerName, AIO.Msg():Add("TRANSMOG", "InspectTransmogs", {
+                    targetName = targetName,
+                    transmogs = transmogs or {},
+                    enchants = enchants or {}
+                }))
+            end)
+        end)
+    end
+    
     -- NOTE: RequestSlotItems handler removed - client uses local cache filtering
     
     -- Apply transmog (async version)

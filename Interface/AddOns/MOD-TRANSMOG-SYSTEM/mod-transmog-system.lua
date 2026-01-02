@@ -67,6 +67,9 @@ local function InitializeSettings()
     if TransmogSettings.account.showSharedAppearanceTooltip == nil then
         TransmogSettings.account.showSharedAppearanceTooltip = true
     end
+    if TransmogSettings.account.showInspectTransmogBorders == nil then
+        TransmogSettings.account.showInspectTransmogBorders = true
+    end
     
     -- Character-specific defaults (keyed by character name-realm)
     TransmogSettings.characters = TransmogSettings.characters or {}
@@ -1380,6 +1383,8 @@ end
 
 -- Forward declaration for RefreshDressingRoomModel (defined later after mainFrame declaration)
 local RefreshDressingRoomModel
+-- Forward declaration for UpdateCharacterBorders (defined later in inspect section)
+local UpdateCharacterBorders
 
 TRANSMOG_HANDLER.ActiveTransmogs = function(player, data)
     activeTransmogs = data or {}
@@ -1402,6 +1407,13 @@ TRANSMOG_HANDLER.Applied = function(player, data)
         
         -- Refresh dressing room model
         RefreshDressingRoomModel()
+        
+        -- Update character frame borders if open
+        C_Timer.After(0, function()
+            if CharacterFrame and CharacterFrame:IsShown() and UpdateCharacterBorders then
+                UpdateCharacterBorders()
+            end
+        end)
     end
 end
 
@@ -1416,6 +1428,211 @@ TRANSMOG_HANDLER.Removed = function(player, slot)
     
     -- Refresh dressing room model
     RefreshDressingRoomModel()
+    
+    -- Update character frame borders if open
+    if CharacterFrame and CharacterFrame:IsShown() and UpdateCharacterBorders then
+        UpdateCharacterBorders()
+    end
+end
+
+-- ============================================================================
+-- Inspect Frame Transmog Borders
+-- ============================================================================
+-- Shows colored borders on inspect frame when inspected player has transmog active
+-- ============================================================================
+
+local inspectTransmogData = {}  -- Cache for inspected player's transmog data
+local inspectBorderFrames = {}  -- Border frames for inspect slots
+
+-- Map equipment slot IDs to inspect frame slot names
+local EQUIP_SLOT_TO_INSPECT_SLOT = {
+    [0]  = "InspectHeadSlot",
+    [2]  = "InspectShoulderSlot",
+    [14] = "InspectBackSlot",
+    [4]  = "InspectChestSlot",
+    [3]  = "InspectShirtSlot",
+    [18] = "InspectTabardSlot",
+    [8]  = "InspectWristSlot",
+    [9]  = "InspectHandsSlot",
+    [5]  = "InspectWaistSlot",
+    [6]  = "InspectLegsSlot",
+    [7]  = "InspectFeetSlot",
+    [15] = "InspectMainHandSlot",
+    [16] = "InspectSecondaryHandSlot",
+    [17] = "InspectRangedSlot",
+}
+
+-- Create a border frame for an inspect slot
+local function CreateInspectBorderFrame(slotFrame)
+    if not slotFrame then return nil end
+    
+    local border = CreateFrame("Frame", nil, slotFrame)
+    border:SetAllPoints(slotFrame)
+    border:SetFrameStrata("TOOLTIP")  -- Ensure on top
+    border:SetFrameLevel(100)
+    
+    -- Create border texture
+    border.texture = border:CreateTexture(nil, "OVERLAY")
+    border.texture:SetPoint("TOPLEFT", -10, 10)      -- BORDER SIZE: adjust these values
+    border.texture:SetPoint("BOTTOMRIGHT", 10, -10) -- BORDER SIZE: adjust these values
+    border.texture:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+    border.texture:SetBlendMode("ADD")
+    border.texture:SetVertexColor(0.1, 0.8, 1, 0.8)  -- Cyan color
+    border:Hide()
+    
+    return border
+end
+
+-- Update inspect frame borders based on transmog data
+local function UpdateInspectBorders()
+    if not GetSetting("showInspectTransmogBorders") then
+        -- Hide all borders if setting is disabled
+        for _, border in pairs(inspectBorderFrames) do
+            if border then border:Hide() end
+        end
+        return
+    end
+    
+    local transmogs = inspectTransmogData.transmogs or {}
+    local enchants = inspectTransmogData.enchants or {}
+    
+    for equipSlot, inspectSlotName in pairs(EQUIP_SLOT_TO_INSPECT_SLOT) do
+        local slotFrame = _G[inspectSlotName]
+        if slotFrame then
+            -- Create border frame if it doesn't exist
+            if not inspectBorderFrames[equipSlot] then
+                inspectBorderFrames[equipSlot] = CreateInspectBorderFrame(slotFrame)
+            end
+            
+            local border = inspectBorderFrames[equipSlot]
+            if border then
+                local transmogItemId = transmogs[equipSlot]
+                local enchantId = enchants[equipSlot]
+                
+                -- Show cyan border if any transmog is active (item, hidden, or enchant)
+                if transmogItemId ~= nil or (enchantId and enchantId > 0) then
+                    border:Show()
+                else
+                    border:Hide()
+                end
+            end
+        end
+    end
+end
+
+-- Clear all inspect borders
+local function ClearInspectBorders()
+    for _, border in pairs(inspectBorderFrames) do
+        if border then border:Hide() end
+    end
+    inspectTransmogData = {}
+end
+
+-- ============================================================================
+-- Character Frame Transmog Borders (when pressing C)
+-- ============================================================================
+
+local characterBorderFrames = {}  -- Border frames for character slots
+
+-- Map equipment slot IDs to character frame slot names
+local EQUIP_SLOT_TO_CHARACTER_SLOT = {
+    [0]  = "CharacterHeadSlot",
+    [2]  = "CharacterShoulderSlot",
+    [14] = "CharacterBackSlot",
+    [4]  = "CharacterChestSlot",
+    [3]  = "CharacterShirtSlot",
+    [18] = "CharacterTabardSlot",
+    [8]  = "CharacterWristSlot",
+    [9]  = "CharacterHandsSlot",
+    [5]  = "CharacterWaistSlot",
+    [6]  = "CharacterLegsSlot",
+    [7]  = "CharacterFeetSlot",
+    [15] = "CharacterMainHandSlot",
+    [16] = "CharacterSecondaryHandSlot",
+    [17] = "CharacterRangedSlot",
+}
+
+-- Update character frame borders based on local activeTransmogs
+UpdateCharacterBorders = function()
+    if not GetSetting("showInspectTransmogBorders") then
+        -- Hide all borders if setting is disabled
+        for _, border in pairs(characterBorderFrames) do
+            if border then border:Hide() end
+        end
+        return
+    end
+    
+    for equipSlot, charSlotName in pairs(EQUIP_SLOT_TO_CHARACTER_SLOT) do
+        local slotFrame = _G[charSlotName]
+        if slotFrame then
+            -- Create border frame if it doesn't exist
+            if not characterBorderFrames[equipSlot] then
+                characterBorderFrames[equipSlot] = CreateInspectBorderFrame(slotFrame)
+            end
+            
+            local border = characterBorderFrames[equipSlot]
+            if border then
+                local transmogItemId = activeTransmogs[equipSlot]
+                local enchantId = activeEnchantTransmogs[equipSlot]
+                
+                -- Show cyan border if any transmog is active (item, hidden, or enchant)
+                if transmogItemId ~= nil or (enchantId and enchantId > 0) then
+                    border:Show()
+                else
+                    border:Hide()
+                end
+            end
+        end
+    end
+end
+
+-- Hook character frame to update borders
+if CharacterFrame then
+    CharacterFrame:HookScript("OnShow", function()
+        UpdateCharacterBorders()
+    end)
+    CharacterFrame:HookScript("OnHide", function()
+        for _, border in pairs(characterBorderFrames) do
+            if border then border:Hide() end
+        end
+    end)
+end
+
+-- Handler for receiving inspect transmog data from server
+TRANSMOG_HANDLER.InspectTransmogs = function(player, data)
+    if not data then return end
+    
+    inspectTransmogData = data
+    UpdateInspectBorders()
+end
+
+-- Hook inspect frame events
+local inspectEventFrame = CreateFrame("Frame")
+inspectEventFrame:RegisterEvent("INSPECT_READY")
+inspectEventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+inspectEventFrame:SetScript("OnEvent", function(self, event, ...)
+    if event == "INSPECT_READY" then
+        local inspectGuid = ...
+        -- Get the inspected unit's name
+        if InspectFrame and InspectFrame:IsShown() then
+            local unit = InspectFrame.unit or "target"
+            local name = UnitName(unit)
+            if name then
+                -- Request transmog data from server
+                AIO.Msg():Add("TRANSMOG", "RequestInspectTransmogs", name):Send()
+            end
+        end
+    elseif event == "PLAYER_TARGET_CHANGED" then
+        -- Clear borders when target changes (will be re-requested on INSPECT_READY)
+        ClearInspectBorders()
+    end
+end)
+
+-- Also hook InspectFrame hide to clear borders
+if InspectFrame then
+    InspectFrame:HookScript("OnHide", function()
+        ClearInspectBorders()
+    end)
 end
 
 
@@ -1675,6 +1892,10 @@ TRANSMOG_HANDLER.EnchantApplied = function(player, data)
         print("|cff00ff00[Transmog]|r Enchant visual applied!")
         UpdateSlotButtonIcons()
         if UpdateEnchantGrid then UpdateEnchantGrid() end
+        -- Update character frame borders if open
+        if CharacterFrame and CharacterFrame:IsShown() and UpdateCharacterBorders then
+            UpdateCharacterBorders()
+        end
     end
 end
 
@@ -1683,6 +1904,10 @@ TRANSMOG_HANDLER.EnchantRemoved = function(player, slot)
     print("|cff00ff00[Transmog]|r Enchant visual removed")
     UpdateSlotButtonIcons()
     if UpdateEnchantGrid then UpdateEnchantGrid() end
+    -- Update character frame borders if open
+    if CharacterFrame and CharacterFrame:IsShown() and UpdateCharacterBorders then
+        UpdateCharacterBorders()
+    end
 end
 
 -- ============================================================================
@@ -4300,6 +4525,15 @@ local function CreateSettingsPanel(parent)
     CreateCheckbox(L["SETTING_HIDE_HAIR_SHIRT"] or "Hide hair/beard on Shirt slot preview", "hideHairOnShirtPreview", false)
     CreateCheckbox(L["SETTING_HIDE_HAIR_TABARD"] or "Hide hair/beard on Tabard slot preview", "hideHairOnTabardPreview", false)
     CreateCheckbox(L["SETTING_MERGE_BY_DISPLAY_ID"] or "Merge items by appearance (Display ID)", "mergeByDisplayId", false)
+    
+    -- ========================================
+    -- SECTION: UI Settings
+    -- ========================================
+    yOffset = yOffset - sectionSpacing
+    CreateSectionHeader(L["SETTINGS_UI"] or "UI Settings")
+    yOffset = yOffset - 5
+    
+    CreateCheckbox(L["SETTING_SHOW_TRANSMOG_BORDERS"] or "Show transmog borders on Character/Inspect frames", "showInspectTransmogBorders", false)
     
     -- ========================================
     -- SECTION: Info

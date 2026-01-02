@@ -219,6 +219,10 @@ L["SETTING_HIDE_HAIR_CHEST"] = "Hide hair/beard on Chest slot preview"
 L["SETTING_HIDE_HAIR_SHIRT"] = "Hide hair/beard on Shirt slot preview"
 L["SETTING_HIDE_HAIR_TABARD"] = "Hide hair/beard on Tabard slot preview"
 
+-- Border Settings
+L["SETTINGS_UI"] = "UI Settings"
+L["SETTING_SHOW_TRANSMOG_BORDERS"] = "Show transmog borders on Character/Inspect frames"
+
 -- Settings Info
 L["SETTINGS_INFO_TEXT"] = "|cff888888Account-wide settings|r apply to all characters.\n|cff888888Character-specific settings|r (background, preview mode) are saved per character.\n\nSettings are saved automatically when changed."
 
