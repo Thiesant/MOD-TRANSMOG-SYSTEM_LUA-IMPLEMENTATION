@@ -278,6 +278,13 @@ local CLIENT_ITEM_CACHE = {
     enchantVersion = 0,       -- Enchant cache version
 }
 
+-- Server settings (populated via RequestSettings)
+local SERVER_SETTINGS = {
+    hideSlots = {},           -- Slot IDs that allow hiding: hideSlots[slotId] = true
+    allowDisplayId = true,    -- Whether display ID transmog is enabled
+    isReady = false,          -- Flag indicating settings are loaded
+}
+
 -- Pending cache requests tracking
 local pendingEnchantCacheRequest = false
 
@@ -778,6 +785,10 @@ local function RequestCollectionStatusFromServer()
     AIO.Msg():Add("TRANSMOG", "RequestCollectionStatus"):Send()
 end
 
+local function RequestSettingsFromServer()
+    AIO.Msg():Add("TRANSMOG", "RequestSettings"):Send()
+end
+
 -- Check if we have cache for a specific slot
 local function HasSlotCache(slotId)
     local hasItems = CLIENT_ITEM_CACHE.bySlot[slotId] and #CLIENT_ITEM_CACHE.bySlot[slotId] > 0
@@ -936,6 +947,12 @@ local function FilterCachedItemsForSlot(slotId, subclassName, qualityName, colle
         
         -- Combine: collected first, then uncollected
         local result = {}
+        
+        -- Add "Hide" option at the beginning if allowed for this slot
+        if SERVER_SETTINGS.isReady and SERVER_SETTINGS.hideSlots[slotId] then
+            table.insert(result, { itemId = 0, collected = true, displayId = 0, isHideOption = true })
+        end
+        
         for _, item in ipairs(collectedItems) do
             table.insert(result, item)
         end
@@ -982,6 +999,12 @@ local function FilterCachedItemsForSlot(slotId, subclassName, qualityName, colle
         
         -- Combine: collected first, then uncollected
         local result = {}
+        
+        -- Add "Hide" option at the beginning if allowed for this slot
+        if SERVER_SETTINGS.isReady and SERVER_SETTINGS.hideSlots[slotId] then
+            table.insert(result, { itemId = 0, collected = true, displayId = 0, isHideOption = true })
+        end
+        
         for _, item in ipairs(collectedItems) do
             table.insert(result, item)
         end
@@ -1305,10 +1328,36 @@ TRANSMOG_HANDLER.Error = function(player, errorCode)
         ["ENCHANT_CACHE_NOT_READY"] = L["ENCHANT_CACHE_NOT_READY"] or "Enchant cache not ready, please wait",
         ["NOT_IN_COLLECTION"] = L["NOT_IN_COLLECTION"] or "Appearance not in collection",
         ["ITEM_NOT_ELIGIBLE"] = L["ITEM_NOT_ELIGIBLE"] or "Item not eligible for transmog",
+        ["HIDE_NOT_ALLOWED"] = L["HIDE_NOT_ALLOWED"] or "Hiding is not allowed for this slot",
+        ["SHARED_DISPLAY_ID_BLOCKED"] = L["SHARED_DISPLAY_ID_BLOCKED"] or "This appearance shares a display with uncollected items",
     }
     
     local message = errorMessages[errorCode] or errorCode
     print(string.format("|cffFF0000[Transmog] %s|r", message))
+end
+
+-- Receive server settings (hide slots config, etc.)
+TRANSMOG_HANDLER.Settings = function(player, data)
+    if not data then return end
+    
+    -- Reset hide slots
+    SERVER_SETTINGS.hideSlots = {}
+    
+    -- Populate hide slots lookup table
+    if data.hideSlots then
+        for _, slotId in ipairs(data.hideSlots) do
+            SERVER_SETTINGS.hideSlots[slotId] = true
+        end
+    end
+    
+    -- Store other settings
+    if data.allowDisplayId ~= nil then
+        SERVER_SETTINGS.allowDisplayId = data.allowDisplayId
+    end
+    
+    SERVER_SETTINGS.isReady = true
+    
+    print(string.format("[Transmog] Settings loaded: %d slots allow hiding", #(data.hideSlots or {})))
 end
 
 TRANSMOG_HANDLER.CollectionData = function(player, data)
@@ -2083,6 +2132,34 @@ local function CreateItemFrame(parent, index)
             return
         end
         
+        -- Handle "Hide" option
+        if f.isHideOption and f.isLoaded then
+            if button == "LeftButton" then
+                if IsShiftKeyDown() then
+                    -- Apply hide transmog (itemId = 0)
+                    ApplyTransmog(currentSlot, 0)
+                    PlaySound("igMainMenuOptionCheckBoxOn")
+                else
+                    -- Select hide option
+                    slotSelectedItems[currentSlot] = 0
+                    selectedItemId = 0
+                    selectedItemFrame = f
+                    f.selectionBorder:Show()
+                    f:SetBackdropBorderColor(0, 1, 1, 1)  -- Cyan for selected
+                    
+                    if dressingRoom then
+                        -- Undress the slot to preview hide
+                        local slotId = SLOT_NAME_TO_EQUIP_SLOT[currentSlot]
+                        if slotId then
+                            dressingRoom:UndressSlot(slotId + 1)  -- WoW slots are 1-indexed for UndressSlot
+                        end
+                        PlaySound("igMainMenuOptionCheckBoxOn")
+                    end
+                end
+            end
+            return
+        end
+        
         -- Normal item mode
         if f.itemId and f.isLoaded then
             if button == "LeftButton" then
@@ -2172,6 +2249,20 @@ local function CreateItemFrame(parent, index)
             -- Only highlight on hover if not active and not selected
             local isEnchantSelected = (slotSelectedEnchants[currentSlot] == enchantData.id)
             if not f.isActive and not isEnchantSelected then
+                f:SetBackdropBorderColor(1, 1, 1, 1)
+            end
+            return
+        end
+        
+        -- Handle "Hide" option specially
+        if f.isHideOption then
+            GameTooltip:SetOwner(f, "ANCHOR_TOPRIGHT")
+            GameTooltip:SetText(L["HIDE_APPEARANCE"] or "Hide Appearance", 1, 1, 1)
+            GameTooltip:AddLine(L["HIDE_APPEARANCE_DESC"] or "Make this equipment slot invisible", 0.7, 0.7, 0.7, true)
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine(L["APPLY_APPEARANCE_SHIFT_CLICK"] or "Shift+Click to apply", 0.7, 0.7, 0.7)
+            GameTooltip:Show()
+            if not f.isActive then
                 f:SetBackdropBorderColor(1, 1, 1, 1)
             end
             return
@@ -2344,13 +2435,14 @@ end
 
 local function UpdateItemFrame(frame, itemData, slotName)
     -- Handle both old format (just itemId) and new format (table with itemId, collected, displayId)
-    local itemId, isCollected, displayId, sharedItems, collectedItemId
+    local itemId, isCollected, displayId, sharedItems, collectedItemId, isHideOption
     if type(itemData) == "table" then
         itemId = itemData.itemId
         isCollected = itemData.collected
         displayId = itemData.displayId
         sharedItems = itemData.sharedItems  -- For mergeByDisplayId mode
         collectedItemId = itemData.collectedItemId  -- The collected item in the group
+        isHideOption = itemData.isHideOption  -- Special "Hide" option
     else
         itemId = itemData
         -- Check if available via exact item or shared display ID
@@ -2359,6 +2451,7 @@ local function UpdateItemFrame(frame, itemData, slotName)
         displayId = nil  -- Legacy format has no displayId
         sharedItems = nil
         collectedItemId = availableItemId  -- Store the collected item ID for transmog
+        isHideOption = false
     end
     
     frame.itemId = itemId
@@ -2366,11 +2459,42 @@ local function UpdateItemFrame(frame, itemData, slotName)
     frame.isCollected = isCollected
     frame.sharedItems = sharedItems  -- Store for tooltip display
     frame.collectedItemId = collectedItemId  -- Store for transmog application
+    frame.isHideOption = isHideOption  -- Store hide option flag
     frame.isLoaded = false
     frame.model:SetScript("OnUpdateModel", nil)
     frame.collectedIcon:Hide()
     frame.newIcon:Hide()
     frame.selectionBorder:Hide()  -- Always hide selection border initially
+    
+    -- Special handling for "Hide" option
+    if isHideOption then
+        frame.model:ClearModel()
+        frame:Show()
+        frame.isLoaded = true
+        
+        -- Show a "hidden/invisible" icon texture instead of model
+        if not frame.hideIcon then
+            local hideIcon = frame:CreateTexture(nil, "ARTWORK")
+            hideIcon:SetPoint("CENTER", 0, 0)
+            hideIcon:SetSize(48, 48)
+            -- Use a cancel/hide icon - INV_Misc_QuestionMark works as placeholder
+            hideIcon:SetTexture("Interface\\PaperDollInfoFrame\\UI-GearManager-LeaveItem-Transparent")
+            frame.hideIcon = hideIcon
+        end
+        frame.hideIcon:Show()
+        frame.model:Hide()
+        
+        -- Mark as collected (always available)
+        frame.collectedIcon:Show()
+        
+        return
+    end
+    
+    -- Hide the hideIcon if it exists (for normal items)
+    if frame.hideIcon then
+        frame.hideIcon:Hide()
+    end
+    frame.model:Show()
     
     if itemId then
         frame.model:ClearModel()
@@ -4973,12 +5097,17 @@ local function CreateMainFrame()
             for _, slotName in ipairs(SLOT_ORDER) do
                 local selectedItem = slotSelectedItems[slotName]
                 if selectedItem then
-                    -- Check if we need to use a shared display ID item instead
-                    local isAvailable, availableItemId = IsAppearanceAvailable(selectedItem)
                     local itemIdToApply = selectedItem
-                    if isAvailable and availableItemId then
-                        itemIdToApply = availableItemId
+                    
+                    -- Skip display ID resolution for hide option (itemId = 0)
+                    if selectedItem ~= 0 then
+                        -- Check if we need to use a shared display ID item instead
+                        local isAvailable, availableItemId = IsAppearanceAvailable(selectedItem)
+                        if isAvailable and availableItemId then
+                            itemIdToApply = availableItemId
+                        end
                     end
+                    
                     ApplyTransmog(slotName, itemIdToApply)
                     appliedCount = appliedCount + 1
                 end
@@ -5321,6 +5450,9 @@ initFrame:SetScript("OnEvent", function(self, event)
         -- Request fresh data from server after delay
         -- NEW: Use cache-based system for better performance
         C_Timer.After(2, function()
+            -- Request server settings (hide slots, etc.)
+            RequestSettingsFromServer()
+            
             -- Request player's collection status (small payload)
             RequestCollectionStatusFromServer()
             -- Also support legacy for backwards compatibility

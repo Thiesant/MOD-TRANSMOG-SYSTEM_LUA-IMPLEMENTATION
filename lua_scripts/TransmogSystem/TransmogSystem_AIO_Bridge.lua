@@ -101,6 +101,28 @@ local ALLOW_UNCOLLECTED_TRANSMOG = false
 -- When false (default), players must have the exact item ID in their collection
 local ALLOW_DISPLAY_ID_TRANSMOG = true
 
+-- ALLOW_HIDE_SLOT
+-- Set to true for each slot to allow players to hide that equipment slot appearance
+-- When enabled, players can select "Hide" in the transmog grid to make the slot invisible
+-- Slot IDs: 0=Head, 2=Shoulder, 14=Back, 4=Chest, 3=Shirt, 18=Tabard,
+--           8=Wrist, 9=Hands, 5=Waist, 6=Legs, 7=Feet, 15=MainHand, 16=SecondaryHand, 17=Ranged
+local ALLOW_HIDE_SLOT = {
+    [0]  = true,   -- Head
+    [2]  = true,   -- Shoulder
+    [14] = true,   -- Back (Cloak)
+    [4]  = true,   -- Chest
+    [3]  = true,   -- Shirt
+    [18] = true,   -- Tabard
+    [8]  = true,   -- Wrist
+    [9]  = true,   -- Hands
+    [5]  = true,   -- Waist
+    [6]  = true,   -- Legs
+    [7]  = true,   -- Feet
+    [15] = false,  -- MainHand
+    [16] = false,  -- SecondaryHand
+    [17] = false,  -- Ranged
+}
+
 -- ───────────────────────────────── MIRROR IMAGE ─────────────────────────────────
 
 -- MIRROR_IMAGE_TRANSMOG_ENABLED
@@ -165,7 +187,7 @@ local MIRROR_IMAGE_DEBUG = false
 --
 -- If not changed, clients keep their cached item list across server restarts,
 -- significantly reducing login bandwidth and database load.
-local CACHE_VERSION = 153
+local CACHE_VERSION = 1
 
 	
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -716,17 +738,24 @@ if ENABLE_AIO_BRIDGE then
             return false  -- Can only transmog if item is equipped
         end
         
-        -- Get item template to verify it exists
-        local itemTemplate = GetItemTemplate(fakeItemId)
-        if not itemTemplate then
-            DebugPrint("[Transmog Debug] ApplyTransmogVisual failed: item template not found for " .. tostring(fakeItemId))
-            return false
-        end
-        
         -- Get the correct visual field for this slot
         local field = GetVisualField(slot)
         if not field then
             DebugPrint("[Transmog Debug] ApplyTransmogVisual failed: no visual field for slot " .. tostring(slot))
+            return false
+        end
+        
+        -- Handle hide mode (fakeItemId = 0)
+        if fakeItemId == 0 then
+            DebugPrint(string.format("[Transmog Debug] Hiding slot: slot=%d, field=%d", slot, field))
+            player:SetUInt32Value(field, 0)
+            return true
+        end
+        
+        -- Get item template to verify it exists
+        local itemTemplate = GetItemTemplate(fakeItemId)
+        if not itemTemplate then
+            DebugPrint("[Transmog Debug] ApplyTransmogVisual failed: item template not found for " .. tostring(fakeItemId))
             return false
         end
         
@@ -1153,6 +1182,25 @@ if ENABLE_AIO_BRIDGE then
         end
     end
     
+    -- Request server settings (hide slots config, etc.)
+    TRANSMOG_HANDLER.RequestSettings = function(player)
+        -- Build list of slots that allow hiding
+        local hideSlots = {}
+        for slotId, allowed in pairs(ALLOW_HIDE_SLOT) do
+            if allowed then
+                table.insert(hideSlots, slotId)
+            end
+        end
+        
+        DebugPrint(string.format("[Transmog] Sending settings to %s: hideSlots=%d slots", 
+            player:GetName(), #hideSlots))
+        
+        AIO.Msg():Add("TRANSMOG", "Settings", {
+            hideSlots = hideSlots,
+            allowDisplayId = ALLOW_DISPLAY_ID_TRANSMOG
+        }):Send(player)
+    end
+    
     -- Request player's collection status (small payload - just item IDs they own)
     -- This is the only player-specific data that needs to be sent frequently
     TRANSMOG_HANDLER.RequestCollectionStatus = function(player)
@@ -1244,7 +1292,7 @@ if ENABLE_AIO_BRIDGE then
     
     -- Apply transmog (async version)
     TRANSMOG_HANDLER.ApplyTransmog = function(player, slotId, itemId)
-        if not slotId or not itemId then
+        if not slotId then
             AIO.Msg():Add("TRANSMOG", "Error", "INVALID_SLOT_OR_ITEM"):Send(player)
             return
         end
@@ -1258,6 +1306,38 @@ if ENABLE_AIO_BRIDGE then
         local accountId = player:GetAccountId()
         local guid = player:GetGUIDLow()
         local playerName = player:GetName()  -- Store name for callback
+        
+        -- Handle hide mode (itemId = 0)
+        if itemId == 0 then
+            -- Check if hiding is allowed for this slot
+            if not ALLOW_HIDE_SLOT[slotId] then
+                DebugPrint(string.format("[Transmog] ApplyTransmog BLOCKED: hiding not allowed for slot %d", slotId))
+                SafeSendToPlayer(playerName, AIO.Msg():Add("TRANSMOG", "Error", "HIDE_NOT_ALLOWED"))
+                return
+            end
+            
+            -- Save hide to database
+            SaveActiveTransmog(guid, slotId, 0)
+            
+            -- Apply hide visual
+            local onlinePlayer = GetPlayerByName(playerName)
+            if onlinePlayer then
+                local equippedItem = onlinePlayer:GetItemByPos(255, slotId)
+                if equippedItem and ENABLE_TRANSMOG_APPLY_TRANSMOG_VISUAL then
+                    ApplyTransmogVisual(onlinePlayer, slotId, 0)
+                end
+            end
+            
+            DebugPrint(string.format("[Transmog] ApplyTransmog: player=%s hiding slot=%d", playerName, slotId))
+            SafeSendToPlayer(playerName, AIO.Msg():Add("TRANSMOG", "Applied", { slot = slotId, itemId = 0 }))
+            return
+        end
+        
+        -- itemId must be valid for non-hide mode
+        if not itemId then
+            AIO.Msg():Add("TRANSMOG", "Error", "INVALID_SLOT_OR_ITEM"):Send(player)
+            return
+        end
         
         -- Debug: log the check
         DebugPrint(string.format("[Transmog] ApplyTransmog: player=%s, slot=%d, item=%d, ALLOW_UNCOLLECTED=%s, ALLOW_DISPLAY_ID=%s", 
