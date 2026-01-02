@@ -2513,11 +2513,15 @@ if ENABLE_AIO_BRIDGE then
                     source = string.format("item %d", item:GetEntry())
                 end
                 
-                -- Check for transmog override
+                -- Check for transmog override (including hidden slots)
                 local field = PLAYER_VISIBLE_ITEM_FIELDS[slot]
-                if field then
+                if field and item then
                     local transmogEntry = player:GetUInt32Value(field)
-                    if transmogEntry and transmogEntry > 0 then
+                    if transmogEntry == 0 then
+                        -- Slot is hidden (transmog entry is 0 but item exists)
+                        displayId = 0
+                        source = "hidden"
+                    elseif transmogEntry and transmogEntry > 0 then
                         local transmogDisplayId = GetMirrorDisplayId(transmogEntry)
                         if transmogDisplayId > 0 then
                             displayId = transmogDisplayId
@@ -2552,11 +2556,15 @@ if ENABLE_AIO_BRIDGE then
                     source = "equipped"
                 end
                 
-                -- Check for transmog override
+                -- Check for transmog override (including hidden slots)
                 local field = PLAYER_VISIBLE_ITEM_FIELDS[slot]
-                if field then
+                if field and item then
                     local transmogEntry = player:GetUInt32Value(field)
-                    if transmogEntry and transmogEntry > 0 then
+                    if transmogEntry == 0 then
+                        -- Slot is hidden (transmog entry is 0 but item exists)
+                        itemEntry = 0
+                        source = "hidden"
+                    elseif transmogEntry and transmogEntry > 0 then
                         itemEntry = transmogEntry
                         source = "transmog"
                     end
