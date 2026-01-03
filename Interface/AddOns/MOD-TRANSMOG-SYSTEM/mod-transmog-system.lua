@@ -444,24 +444,34 @@ local function LoadCacheFromSavedVariables()
 end
 
 -- Helper to save cache to SavedVariables
+local saveCacheScheduled = false
 local function SaveCacheToSavedVariables()
-    TransmogDB = TransmogDB or {}
-    TransmogDB.itemCache = {
-        version = CLIENT_ITEM_CACHE.version,
-        bySlot = CLIENT_ITEM_CACHE.bySlot,
-        enchants = CLIENT_ITEM_CACHE.enchants,
-        enchantVersion = CLIENT_ITEM_CACHE.enchantVersion,
-    }
+    -- Debounce: if already scheduled within this frame, skip
+    if saveCacheScheduled then return end
+    saveCacheScheduled = true
     
-    -- Debug: count what we saved
-    local slotCount = 0
-    local itemCount = 0
-    for slotId, items in pairs(CLIENT_ITEM_CACHE.bySlot) do
-        slotCount = slotCount + 1
-        itemCount = itemCount + #items
-    end
-    print(string.format("[Transmog] Saved cache to SavedVariables: version=%d, %d slots, %d items, %d enchants",
-        CLIENT_ITEM_CACHE.version, slotCount, itemCount, #CLIENT_ITEM_CACHE.enchants))
+    -- Defer the actual save to end of frame to consolidate multiple calls
+    C_Timer.After(0, function()
+        saveCacheScheduled = false
+        
+        TransmogDB = TransmogDB or {}
+        TransmogDB.itemCache = {
+            version = CLIENT_ITEM_CACHE.version,
+            bySlot = CLIENT_ITEM_CACHE.bySlot,
+            enchants = CLIENT_ITEM_CACHE.enchants,
+            enchantVersion = CLIENT_ITEM_CACHE.enchantVersion,
+        }
+        
+        -- Debug: count what we saved
+        local slotCount = 0
+        local itemCount = 0
+        for slotId, items in pairs(CLIENT_ITEM_CACHE.bySlot) do
+            slotCount = slotCount + 1
+            itemCount = itemCount + #items
+        end
+        print(string.format("[Transmog] Saved cache to SavedVariables: version=%d, %d slots, %d items, %d enchants",
+            CLIENT_ITEM_CACHE.version, slotCount, itemCount, #CLIENT_ITEM_CACHE.enchants))
+    end)
 end
 
 -- ============================================================================
@@ -698,9 +708,7 @@ local function AddSharedAppearanceToTooltip(tooltip, itemId, settingKey)
     end
 end
 
-local function RequestCollectionFromServer()
-    AIO.Msg():Add("TRANSMOG", "RequestCollection"):Send()
-end
+-- DEPRECATED: RequestCollectionFromServer removed - use RequestCollectionStatusFromServer instead
 
 local function RequestActiveTransmogsFromServer()
     AIO.Msg():Add("TRANSMOG", "RequestActiveTransmogs"):Send()
@@ -783,7 +791,7 @@ local function RequestEnchantCacheFromServer()
     AIO.Msg():Add("TRANSMOG", "RequestEnchantCache", clientVersion):Send()
 end
 
--- Request collection status from server (player's owned items - small payload)
+-- Request collection status from server
 local function RequestCollectionStatusFromServer()
     AIO.Msg():Add("TRANSMOG", "RequestCollectionStatus"):Send()
 end
@@ -1363,23 +1371,7 @@ TRANSMOG_HANDLER.Settings = function(player, data)
     print(string.format("[Transmog] Settings loaded: %d slots allow hiding", #(data.hideSlots or {})))
 end
 
-TRANSMOG_HANDLER.CollectionData = function(player, data)
-    if data.chunk == 1 then
-        collectedAppearances = {}
-        TransmogDB = TransmogDB or {}
-        TransmogDB.collection = {}
-    end
-    
-    for _, itemId in ipairs(data.items) do
-        collectedAppearances[itemId] = true
-        TransmogDB.collection[itemId] = true
-    end
-    
-    if data.chunk == data.totalChunks then
-        isCollectionLoaded = true
-        print(string.format(L["COLLECTION_LOADED"], GetCollectionCount()))
-    end
-end
+-- DEPRECATED: CollectionData handler removed - use CollectionStatus instead
 
 -- Forward declaration for RefreshDressingRoomModel (defined later after mainFrame declaration)
 local RefreshDressingRoomModel
@@ -1692,7 +1684,7 @@ TRANSMOG_HANDLER.RetroactiveUnlock = function(player, count)
     if count and count > 0 then
         print(string.format("|cff00ff00[Transmog]|r %s", string.format(L["RETROACTIVE_UNLOCKED"], count)))
         -- Request fresh collection data
-        RequestCollectionFromServer()
+        RequestCollectionStatusFromServer()
     end
 end
 
@@ -5688,8 +5680,6 @@ initFrame:SetScript("OnEvent", function(self, event)
             
             -- Request player's collection status (small payload)
             RequestCollectionStatusFromServer()
-            -- Also support legacy for backwards compatibility
-            RequestCollectionFromServer()
             
             RequestActiveTransmogsFromServer()
             RequestSetsFromServer()
@@ -5698,10 +5688,8 @@ initFrame:SetScript("OnEvent", function(self, event)
             -- This is the key performance improvement - only done once
             RequestFullCacheFromServer()
             
-            -- Request enchant cache (versioned)
+            -- Request enchant cache (versioned) - falls back to legacy via EnchantCacheNotReady handler
             RequestEnchantCacheFromServer()
-            -- Fallback to legacy if cache not supported
-            RequestEnchantCollectionFromServer()
             RequestActiveEnchantTransmogsFromServer()
         end)
         
