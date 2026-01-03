@@ -2132,6 +2132,51 @@ RefreshDressingRoomModel = function(previewItems)
 end
 
 -- ============================================================================
+-- Enchant Preview on Dressing Room Model
+-- ============================================================================
+-- Preview enchant visual on the dressing room model by creating an item link
+-- with the enchant ID embedded and using TryOn
+-- ============================================================================
+
+local function PreviewEnchantOnModel(enchantId)
+    if not mainFrame or not mainFrame.dressingRoom then return end
+    if not enchantId then return end
+    
+    local mdl = mainFrame.dressingRoom.model
+    if not mdl then return end
+    
+    -- Determine which weapon slot we're previewing based on currentSlot
+    local slotId = SLOT_NAME_TO_EQUIP_SLOT[currentSlot]
+    if not slotId then return end
+    
+    -- Only weapon slots can have enchant visuals
+    if not ENCHANT_ELIGIBLE_SLOTS[currentSlot] then return end
+    
+    -- Get the weapon item ID to use for preview
+    -- Priority: 1) Selected item for this slot, 2) Active transmog, 3) Equipped item
+    local weaponItemId = nil
+    
+    -- Check selected item first
+    if slotSelectedItems[currentSlot] and slotSelectedItems[currentSlot] > 0 then
+        weaponItemId = slotSelectedItems[currentSlot]
+    -- Check active transmog
+    elseif activeTransmogs[slotId] and activeTransmogs[slotId] > 0 then
+        weaponItemId = activeTransmogs[slotId]
+    else
+        -- Get equipped item
+        weaponItemId = GetInventoryItemID("player", slotId + 1)  -- WoW inventory slots are 1-indexed
+    end
+    
+    if not weaponItemId or weaponItemId == 0 then return end
+    
+    -- Create item link with enchant: "item:itemId:enchantId:0:0:0:0:0:0:0"
+    local itemLinkWithEnchant = string.format("item:%d:%d:0:0:0:0:0:0:0", weaponItemId, enchantId)
+    
+    -- Apply to model
+    mdl:TryOn(itemLinkWithEnchant)
+end
+
+-- ============================================================================
 -- Camera Functions
 -- ============================================================================
 
@@ -2306,6 +2351,8 @@ local function CreateItemFrame(parent, index)
                     -- Shift+Left click: Apply enchant transmog
                     ApplyEnchantTransmog(currentSlot, enchantData.id)
                     PlaySound("igCharacterInfoTab")
+                    -- Preview enchant on dressing room model
+                    PreviewEnchantOnModel(enchantData.id)
                 else
                     -- Left click: Select enchant with cyan highlight
                     -- Clear previous selection for all enchant frames
@@ -2337,6 +2384,8 @@ local function CreateItemFrame(parent, index)
                     
                     PlaySound("igMainMenuOptionCheckBoxOn")
                     
+                    -- Preview enchant on dressing room model
+                    PreviewEnchantOnModel(enchantData.id)
                 end
             elseif button == "RightButton" then
                 local slotId = SLOT_NAME_TO_EQUIP_SLOT[currentSlot]
