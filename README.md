@@ -14,8 +14,8 @@ Dedicated UI interface addon instead to bypass standard NPC gossip, which is con
 ## Features
 
 * In-game transmogrification interface
-* Class-specific dressing room backgrounds
-* Grid-based item preview system
+* Class/race-specific dressing room backgrounds (default on character class)
+* Grid-based item/enchant preview system
 * Search bar per name, item ID, display ID
 * Sets management
 * Persistent collection account wide
@@ -40,12 +40,39 @@ Dedicated UI interface addon instead to bypass standard NPC gossip, which is con
 │           │   ├───dressingroomdruid.blp
 │           │   ├───dressingroomhunter.blp
 │           │   ├───dressingroommage.blp
+│           │   ├───dressingroommonk.blp
 │           │   ├───dressingroompaladin.blp
 │           │   ├───dressingroompriest.blp
 │           │   ├───dressingroomrogue.blp
 │           │   ├───dressingroomshaman.blp
 │           │   ├───dressingroomwarlock.blp
 │           │   ├───dressingroomwarrior.blp
+│           │   ├───dressupbackgroundbloodelf.blp
+│           │   ├───dressupbackgrounddarkiron.blp
+│           │   ├───dressupbackgrounddrackthyr.blp
+│           │   ├───dressupbackgrounddraenei.blp
+│           │   ├───dressupbackgrounddwarf.blp
+│           │   ├───dressupbackgroundearthen.blp
+│           │   ├───dressupbackgroundgnome.blp
+│           │   ├───dressupbackgroundgoblin.blp
+│           │   ├───dressupbackgroundhighmountaintauren.blp
+│           │   ├───dressupbackgroundhuman.blp
+│           │   ├───dressupbackgroundkultiran.blp
+│           │   ├───dressupbackgroundlightforgedraenei.blp
+│           │   ├───dressupbackgroundmaghar.blp
+│           │   ├───dressupbackgroundmechagnome.blp
+│           │   ├───dressupbackgroundnightborne.blp
+│           │   ├───dressupbackgroundnightelf.blp
+│           │   ├───dressupbackgroundorc.blp
+│           │   ├───dressupbackgroundpandaren.blp
+│           │   ├───dressupbackgroundpet.blp
+│           │   ├───dressupbackgroundscourge.blp
+│           │   ├───dressupbackgroundtauren.blp
+│           │   ├───dressupbackgroundtroll.blp
+│           │   ├───dressupbackgroundvoirdelf.blp
+│           │   ├───dressupbackgroundvulpera.blp
+│           │   ├───dressupbackgroundworgen.blp
+│           │   ├───dressupbackgroundzandalaritroll.blp
 │           │   └───uiframediamondmetalclassicborder.blp
 │           ├───Grid-Preview-DB.lua
 │           ├───Locale

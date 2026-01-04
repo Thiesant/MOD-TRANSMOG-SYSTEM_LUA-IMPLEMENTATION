@@ -3670,23 +3670,108 @@ local BACKGROUND_OPTIONS = {
 }
 Transmog.BACKGROUND_OPTIONS = BACKGROUND_OPTIONS
 
-local TEXTURE_PATHS = {
-    WARRIOR = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroomwarrior",
-    PALADIN = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroompaladin",
-    HUNTER = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroomhunter",
-    ROGUE = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroomrogue",
-    PRIEST = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroompriest",
-    DEATHKNIGHT = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroomdeathknight",
-    SHAMAN = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroomshaman",
-    MAGE = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroommage",
-    WARLOCK = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroomwarlock",
-    DRUID = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroomdruid"
+-- Texture info: path, content width, content height (within 512x512 texture)
+-- Class textures: 480x502 content in top-left
+-- Race textures: 423x442 content in top-left
+local TEXTURE_INFO = {
+    -- Classes (480x502 in 512x512)
+    WARRIOR     = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroomwarrior",     contentW = 480, contentH = 502 },
+    PALADIN     = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroompaladin",     contentW = 480, contentH = 502 },
+    HUNTER      = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroomhunter",      contentW = 480, contentH = 502 },
+    ROGUE       = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroomrogue",       contentW = 480, contentH = 502 },
+    PRIEST      = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroompriest",      contentW = 480, contentH = 502 },
+    DEATHKNIGHT = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroomdeathknight", contentW = 480, contentH = 502 },
+    SHAMAN      = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroomshaman",      contentW = 480, contentH = 502 },
+    MAGE        = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroommage",        contentW = 480, contentH = 502 },
+    WARLOCK     = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroomwarlock",     contentW = 480, contentH = 502 },
+    MONK        = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroommonk",        contentW = 480, contentH = 502 },
+    DRUID       = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressingroomdruid",       contentW = 480, contentH = 502 },
+    -- Races (423x442 in 512x512)
+    RACE_BLOODELF           = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundbloodelf",          contentW = 423, contentH = 442 },
+    RACE_DARKIRON           = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgrounddarkiron",          contentW = 423, contentH = 442 },
+    RACE_DRACTHYR           = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgrounddrackthyr",         contentW = 423, contentH = 442 },
+    RACE_DRAENEI            = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgrounddraenei",           contentW = 423, contentH = 442 },
+    RACE_DWARF              = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgrounddwarf",             contentW = 423, contentH = 442 },
+    RACE_EARTHEN            = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundearthen",           contentW = 423, contentH = 442 },
+    RACE_GNOME              = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundgnome",             contentW = 423, contentH = 442 },
+    RACE_GOBLIN             = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundgoblin",            contentW = 423, contentH = 442 },
+    RACE_HIGHMOUNTAINTAUREN = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundhighmountaintauren",contentW = 423, contentH = 442 },
+    RACE_HUMAN              = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundhuman",             contentW = 423, contentH = 442 },
+    RACE_KULTIRAN           = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundkultiran",          contentW = 423, contentH = 442 },
+    RACE_LIGHTFORGED        = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundlightforgedraenei", contentW = 423, contentH = 442 },
+    RACE_MAGHAR             = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundmaghar",            contentW = 423, contentH = 442 },
+    RACE_MECHAGNOME         = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundmechagnome",        contentW = 423, contentH = 442 },
+    RACE_NIGHTBORNE         = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundnightborne",        contentW = 423, contentH = 442 },
+    RACE_NIGHTELF           = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundnightelf",          contentW = 423, contentH = 442 },
+    RACE_ORC                = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundorc",               contentW = 423, contentH = 442 },
+    RACE_PANDAREN           = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundpandaren",          contentW = 423, contentH = 442 },
+    RACE_SCOURGE            = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundscourge",           contentW = 423, contentH = 442 },
+    RACE_TAUREN             = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundtauren",            contentW = 423, contentH = 442 },
+    RACE_TROLL              = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundtroll",             contentW = 423, contentH = 442 },
+    RACE_VOIDELF            = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundvoirdelf",          contentW = 423, contentH = 442 },
+    RACE_VULPERA            = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundvulpera",           contentW = 423, contentH = 442 },
+    RACE_WORGEN             = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundworgen",            contentW = 423, contentH = 442 },
+    RACE_ZANDALARI          = { path = "Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\dressupbackgroundzandalaritroll",    contentW = 423, contentH = 442 },
 }
+Transmog.TEXTURE_INFO = TEXTURE_INFO
+
+-- Legacy compatibility: TEXTURE_PATHS returns just paths
+local TEXTURE_PATHS = {}
+for key, info in pairs(TEXTURE_INFO) do
+    TEXTURE_PATHS[key] = info.path
+end
 Transmog.TEXTURE_PATHS = TEXTURE_PATHS
+
+-- Helper: Calculate proper TexCoord for a texture fitting into a frame
+-- Crops the content area to fill the frame while maintaining aspect ratio
+local function CalculateTexCoords(textureKey, frameWidth, frameHeight)
+    local info = TEXTURE_INFO[textureKey]
+    if not info then
+        -- Fallback to warlock
+        info = TEXTURE_INFO.WARLOCK
+    end
+    
+    local texSize = 512  -- All textures are 512x512
+    local contentW, contentH = info.contentW, info.contentH
+    
+    -- Content area in texture coordinates (0-1 range)
+    local contentRight = contentW / texSize
+    local contentBottom = contentH / texSize
+    
+    -- Calculate aspect ratios
+    local frameAspect = frameWidth / frameHeight
+    local contentAspect = contentW / contentH
+    
+    local left, right, top, bottom
+    
+    if frameAspect > contentAspect then
+        -- Frame is wider than content - crop top/bottom
+        local cropHeight = contentW / frameAspect
+        local cropOffset = (contentH - cropHeight) / 2
+        left = 0
+        right = contentRight
+        top = cropOffset / texSize
+        bottom = (contentH - cropOffset) / texSize
+    else
+        -- Frame is taller than content - crop left/right
+        local cropWidth = contentH * frameAspect
+        local cropOffset = (contentW - cropWidth) / 2
+        left = cropOffset / texSize
+        right = (contentW - cropOffset) / texSize
+        top = 0
+        bottom = contentBottom
+    end
+    
+    return left, right, top, bottom, info.path
+end
+Transmog.CalculateTexCoords = CalculateTexCoords
 
 local function CreateDressingRoom(parent)
     local frame = CreateFrame("Frame", "$parentDressingRoom", parent)
     frame:SetSize(280, 460)
+    
+    -- Frame dimensions for texture coordinate calculation
+    local frameWidth, frameHeight = 272, 452  -- Account for 4px insets
     
     -- Create and set the class-specific background texture
     local bgTexture = frame:CreateTexture("$parentCustomTexture", "BACKGROUND")
@@ -3697,25 +3782,16 @@ local function CreateDressingRoom(parent)
     local _, playerClass = UnitClass("player")
     
     -- Check for background override setting
-    local backgroundClass = GetSetting("backgroundOverride") or playerClass
+    local backgroundKey = GetSetting("backgroundOverride") or playerClass
     
-    -- Set texture based on class or override
-    local texturePath = TEXTURE_PATHS[backgroundClass] or TEXTURE_PATHS[playerClass] or TEXTURE_PATHS.WARLOCK
+    -- Calculate proper texture coordinates based on content dimensions
+    local left, right, top, bottom, texturePath = CalculateTexCoords(backgroundKey, frameWidth, frameHeight)
     bgTexture:SetTexture(texturePath)
-    
-    -- Calculate cropping for square texture in portrait frame
-    local frameWidth, frameHeight = 280, 460
-    local frameAspect = frameWidth / frameHeight
-    
-    local cropWidth = frameAspect
-    local left = (1 - cropWidth) / 2
-    local right = 1 - left
-    
-    bgTexture:SetTexCoord(left, right, 0, 1)
+    bgTexture:SetTexCoord(left, right, top, bottom)
     
     frame.bgTexture = bgTexture
-    frame.texCoordLeft = left
-    frame.texCoordRight = right
+    frame.frameWidth = frameWidth
+    frame.frameHeight = frameHeight
     
     frame:SetBackdrop({
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -3727,12 +3803,12 @@ local function CreateDressingRoom(parent)
     frame:SetBackdropColor(0, 0, 0, 0)
     frame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
     
-    function frame:UpdateBackgroundTexture(overrideClass)
+    function frame:UpdateBackgroundTexture(overrideKey)
         local _, currentClass = UnitClass("player")
-        local backgroundClass = overrideClass or GetSetting("backgroundOverride") or currentClass
-        local newTexturePath = TEXTURE_PATHS[backgroundClass] or TEXTURE_PATHS[currentClass] or TEXTURE_PATHS.WARLOCK
+        local backgroundKey = overrideKey or GetSetting("backgroundOverride") or currentClass
+        local left, right, top, bottom, newTexturePath = CalculateTexCoords(backgroundKey, self.frameWidth, self.frameHeight)
         self.bgTexture:SetTexture(newTexturePath)
-        self.bgTexture:SetTexCoord(self.texCoordLeft, self.texCoordRight, 0, 1)
+        self.bgTexture:SetTexCoord(left, right, top, bottom)
     end
     
     -- Create model frame
@@ -4467,23 +4543,469 @@ local function CreateSettingsPanel(parent)
     CreateSectionHeader(L["SETTINGS_DISPLAY"] or "Display Settings")
     yOffset = yOffset - 5
     
-    -- Background dropdown (character-specific) with localized options
-    local backgroundOptions = {
-        { value = nil, label = L["SETTING_BG_AUTO"] or "Auto (Class)" },
-        { value = "WARRIOR", label = L["CLASS_WARRIOR"] or "Warrior" },
-        { value = "PALADIN", label = L["CLASS_PALADIN"] or "Paladin" },
-        { value = "HUNTER", label = L["CLASS_HUNTER"] or "Hunter" },
-        { value = "ROGUE", label = L["CLASS_ROGUE"] or "Rogue" },
-        { value = "PRIEST", label = L["CLASS_PRIEST"] or "Priest" },
-        { value = "DEATHKNIGHT", label = L["CLASS_DEATHKNIGHT"] or "Death Knight" },
-        { value = "SHAMAN", label = L["CLASS_SHAMAN"] or "Shaman" },
-        { value = "MAGE", label = L["CLASS_MAGE"] or "Mage" },
-        { value = "WARLOCK", label = L["CLASS_WARLOCK"] or "Warlock" },
-        { value = "DRUID", label = L["CLASS_DRUID"] or "Druid" },
+    -- Background selector data (organized by category)
+    local BACKGROUND_CATEGORIES = {
+        { 
+            name = L["SETTING_BG_AUTO"] or "Auto", 
+            items = {
+                { value = nil, label = L["SETTING_BG_AUTO"] or "Auto (Class)" },
+            }
+        },
+        { 
+            name = L["SETTING_BG_CLASSES"] or "Classes", 
+            items = {
+                { value = "WARRIOR", label = L["CLASS_WARRIOR"] or "Warrior" },
+                { value = "PALADIN", label = L["CLASS_PALADIN"] or "Paladin" },
+                { value = "HUNTER", label = L["CLASS_HUNTER"] or "Hunter" },
+                { value = "ROGUE", label = L["CLASS_ROGUE"] or "Rogue" },
+                { value = "PRIEST", label = L["CLASS_PRIEST"] or "Priest" },
+                { value = "DEATHKNIGHT", label = L["CLASS_DEATHKNIGHT"] or "Death Knight" },
+                { value = "SHAMAN", label = L["CLASS_SHAMAN"] or "Shaman" },
+                { value = "MAGE", label = L["CLASS_MAGE"] or "Mage" },
+                { value = "WARLOCK", label = L["CLASS_WARLOCK"] or "Warlock" },
+                { value = "MONK", label = L["CLASS_MONK"] or "Monk" },
+                { value = "DRUID", label = L["CLASS_DRUID"] or "Druid" },
+            }
+        },
+        { 
+            name = L["SETTING_BG_RACES"] or "Races", 
+            items = {
+                { value = "RACE_HUMAN", label = L["RACE_HUMAN"] or "Human" },
+                { value = "RACE_DWARF", label = L["RACE_DWARF"] or "Dwarf" },
+                { value = "RACE_NIGHTELF", label = L["RACE_NIGHTELF"] or "Night Elf" },
+                { value = "RACE_GNOME", label = L["RACE_GNOME"] or "Gnome" },
+                { value = "RACE_DRAENEI", label = L["RACE_DRAENEI"] or "Draenei" },
+                { value = "RACE_WORGEN", label = L["RACE_WORGEN"] or "Worgen" },
+                { value = "RACE_ORC", label = L["RACE_ORC"] or "Orc" },
+                { value = "RACE_SCOURGE", label = L["RACE_SCOURGE"] or "Undead" },
+                { value = "RACE_TAUREN", label = L["RACE_TAUREN"] or "Tauren" },
+                { value = "RACE_TROLL", label = L["RACE_TROLL"] or "Troll" },
+                { value = "RACE_BLOODELF", label = L["RACE_BLOODELF"] or "Blood Elf" },
+                { value = "RACE_GOBLIN", label = L["RACE_GOBLIN"] or "Goblin" },
+                { value = "RACE_PANDAREN", label = L["RACE_PANDAREN"] or "Pandaren" },
+            }
+        },
+        { 
+            name = L["SETTING_BG_ALLIED"] or "Allied Races", 
+            items = {
+                { value = "RACE_VOIDELF", label = L["RACE_VOIDELF"] or "Void Elf" },
+                { value = "RACE_LIGHTFORGED", label = L["RACE_LIGHTFORGED"] or "Lightforged" },
+                { value = "RACE_DARKIRON", label = L["RACE_DARKIRON"] or "Dark Iron" },
+                { value = "RACE_KULTIRAN", label = L["RACE_KULTIRAN"] or "Kul Tiran" },
+                { value = "RACE_MECHAGNOME", label = L["RACE_MECHAGNOME"] or "Mechagnome" },
+                { value = "RACE_NIGHTBORNE", label = L["RACE_NIGHTBORNE"] or "Nightborne" },
+                { value = "RACE_HIGHMOUNTAINTAUREN", label = L["RACE_HIGHMOUNTAINTAUREN"] or "Highmountain" },
+                { value = "RACE_MAGHAR", label = L["RACE_MAGHAR"] or "Mag'har" },
+                { value = "RACE_ZANDALARI", label = L["RACE_ZANDALARI"] or "Zandalari" },
+                { value = "RACE_VULPERA", label = L["RACE_VULPERA"] or "Vulpera" },
+                { value = "RACE_DRACTHYR", label = L["RACE_DRACTHYR"] or "Dracthyr" },
+                { value = "RACE_EARTHEN", label = L["RACE_EARTHEN"] or "Earthen" },
+            }
+        },
     }
-    CreateSettingsDropdown(
+    
+    -- Helper to get label from value
+    local function GetBackgroundLabel(value)
+        for _, category in ipairs(BACKGROUND_CATEGORIES) do
+            for _, item in ipairs(category.items) do
+                if item.value == value then
+                    return item.label
+                end
+            end
+        end
+        return L["SETTING_BG_AUTO"] or "Auto (Class)"
+    end
+    
+    -- Create background selector popup (shared between both settings)
+    local bgSelectorPopup = nil
+    
+    local function CreateBackgroundSelectorPopup()
+        if bgSelectorPopup then return bgSelectorPopup end
+        
+        local popup = CreateFrame("Frame", "TransmogBackgroundSelectorPopup", UIParent)
+        popup:SetSize(340, 380)
+        popup:SetFrameStrata("FULLSCREEN_DIALOG")
+        popup:SetFrameLevel(100)
+        popup:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true, tileSize = 16, edgeSize = 16,
+            insets = { left = 4, right = 4, top = 4, bottom = 4 }
+        })
+        popup:SetBackdropColor(0.1, 0.1, 0.1, 0.98)
+        popup:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
+        popup:EnableMouse(true)
+        popup:SetMovable(true)
+        popup:RegisterForDrag("LeftButton")
+        popup:SetScript("OnDragStart", popup.StartMoving)
+        popup:SetScript("OnDragStop", popup.StopMovingOrSizing)
+        popup:EnableKeyboard(true)
+        popup:Hide()
+        
+        -- Block mouse wheel from propagating to frames behind, forward to scroll frame
+        popup:EnableMouseWheel(true)
+        popup:SetScript("OnMouseWheel", function(self, delta)
+            -- Forward to scroll frame
+            local scrollFrame = self.scrollFrame
+            if scrollFrame then
+                local current = scrollFrame:GetVerticalScroll()
+                local maxScroll = scrollFrame:GetVerticalScrollRange()
+                local step = 40
+                local newScroll = current - (delta * step)
+                newScroll = math.max(0, math.min(newScroll, maxScroll))
+                scrollFrame:SetVerticalScroll(newScroll)
+            end
+        end)
+        
+        -- Close on escape
+        popup:SetScript("OnKeyDown", function(self, key)
+            if key == "ESCAPE" then
+                self:Hide()
+                self:SetPropagateKeyboardInput(false)
+            else
+                self:SetPropagateKeyboardInput(true)
+            end
+        end)
+        
+        -- Title
+        local title = popup:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        title:SetPoint("TOP", 0, -10)
+        title:SetText(L["SETTING_BG_SELECT"] or "Select Background")
+        title:SetTextColor(1, 0.82, 0)
+        popup.title = title
+        
+        -- Close button
+        local closeBtn = CreateFrame("Button", nil, popup, "UIPanelCloseButton")
+        closeBtn:SetPoint("TOPRIGHT", -2, -2)
+        closeBtn:SetScript("OnClick", function() popup:Hide() end)
+        
+        -- Scroll frame for content (needs unique name for scrollbar to work)
+        local scrollFrame = CreateFrame("ScrollFrame", "TransmogBgSelectorScrollFrame", popup, "UIPanelScrollFrameTemplate")
+        scrollFrame:SetPoint("TOPLEFT", 10, -30)
+        scrollFrame:SetPoint("BOTTOMRIGHT", -28, 10)
+        popup.scrollFrame = scrollFrame
+        
+        -- Position the scrollbar properly
+        local scrollBar = _G["TransmogBgSelectorScrollFrameScrollBar"]
+        if scrollBar then
+            scrollBar:ClearAllPoints()
+            scrollBar:SetPoint("TOPLEFT", scrollFrame, "TOPRIGHT", 2, -16)
+            scrollBar:SetPoint("BOTTOMLEFT", scrollFrame, "BOTTOMRIGHT", 2, 16)
+        end
+        
+        local scrollContent = CreateFrame("Frame", nil, scrollFrame)
+        scrollContent:SetSize(280, 10)  -- Height will be set dynamically
+        scrollFrame:SetScrollChild(scrollContent)
+        popup.scrollContent = scrollContent
+        
+        -- Also enable mouse wheel on scroll content to forward to scroll frame
+        scrollContent:EnableMouseWheel(true)
+        scrollContent:SetScript("OnMouseWheel", function(self, delta)
+            local current = scrollFrame:GetVerticalScroll()
+            local maxScroll = scrollFrame:GetVerticalScrollRange()
+            local step = 40
+            local newScroll = current - (delta * step)
+            newScroll = math.max(0, math.min(newScroll, maxScroll))
+            scrollFrame:SetVerticalScroll(newScroll)
+        end)
+        
+        -- Build content
+        local contentY = 0
+        local thumbSize = 40
+        local thumbSpacing = 10  -- Spacing for 48x48 border on 40x40 thumb
+        local thumbsPerRow = 6
+        
+        popup.thumbnails = {}
+        
+        for catIdx, category in ipairs(BACKGROUND_CATEGORIES) do
+            -- Category header
+            local header = scrollContent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            header:SetPoint("TOPLEFT", 5, contentY)
+            header:SetText(category.name)
+            header:SetTextColor(1, 0.82, 0)
+            contentY = contentY - 15
+            
+            -- Separator line under category header
+            local line = scrollContent:CreateTexture(nil, "ARTWORK")
+            line:SetPoint("TOPLEFT", 5, contentY)
+            line:SetSize(280, 1)
+            line:SetColorTexture(0.5, 0.5, 0.5, 0.5)
+            contentY = contentY - 8
+            
+            -- Thumbnails in grid
+            local itemsInRow = 0
+            local rowStartY = contentY
+            
+            for itemIdx, item in ipairs(category.items) do
+                local col = itemsInRow
+                local xPos = col * (thumbSize + thumbSpacing)
+                
+                local thumb = CreateFrame("Button", nil, scrollContent)
+                thumb:SetSize(thumbSize, thumbSize)
+                thumb:SetPoint("TOPLEFT", xPos + 5, contentY)
+                
+                -- Background texture preview
+                local tex = thumb:CreateTexture(nil, "ARTWORK")
+                tex:SetAllPoints()
+                if item.value then
+                    local info = TEXTURE_INFO[item.value]
+                    if info then
+                        tex:SetTexture(info.path)
+                        -- Crop to show center of content
+                        local contentW, contentH = info.contentW, info.contentH
+                        local left = 0.1 * (contentW / 512)
+                        local right = 0.9 * (contentW / 512)
+                        local top = 0.1 * (contentH / 512)
+                        local bottom = 0.9 * (contentH / 512)
+                        tex:SetTexCoord(left, right, top, bottom)
+                    else
+                        tex:SetColorTexture(0.3, 0.3, 0.3, 1)
+                    end
+                else
+                    -- Auto option - show player's class texture
+                    local _, pClass = UnitClass("player")
+                    local info = TEXTURE_INFO[pClass] or TEXTURE_INFO.WARLOCK
+                    tex:SetTexture(info.path)
+                    local contentW, contentH = info.contentW, info.contentH
+                    local left = 0.1 * (contentW / 512)
+                    local right = 0.9 * (contentW / 512)
+                    local top = 0.1 * (contentH / 512)
+                    local bottom = 0.9 * (contentH / 512)
+                    tex:SetTexCoord(left, right, top, bottom)
+                end
+                thumb.tex = tex
+                
+                -- Border using custom diamond metal classic border
+                -- TexCoord crops to the actual frame portion (0.5625 = 36/64)
+                local border = thumb:CreateTexture(nil, "OVERLAY")
+                border:SetTexture("Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\uiframediamondmetalclassicborder")
+                border:SetTexCoord(0, 0.5625, 0, 0.5625)
+                border:SetSize(48, 48)  -- Slightly larger than 40x40 thumb to create border
+                border:SetPoint("CENTER", thumb, "CENTER", 0, 0)
+                thumb.border = border
+                
+                -- Selection highlight (gold glow on border)
+                local selected = thumb:CreateTexture(nil, "OVERLAY", nil, 1)
+                selected:SetTexture("Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\uiframediamondmetalclassicborder")
+                selected:SetTexCoord(0, 0.5625, 0, 0.5625)
+                selected:SetSize(48, 48)
+                selected:SetPoint("CENTER", thumb, "CENTER", 0, 0)
+                selected:SetVertexColor(1, 0.82, 0, 1)  -- Gold tint for selected
+                selected:SetBlendMode("ADD")
+                selected:Hide()
+                thumb.selected = selected
+                
+                -- Hover highlight (subtle glow)
+                local highlight = thumb:CreateTexture(nil, "HIGHLIGHT")
+                highlight:SetTexture("Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\uiframediamondmetalclassicborder")
+                highlight:SetTexCoord(0, 0.5625, 0, 0.5625)
+                highlight:SetSize(48, 48)
+                highlight:SetPoint("CENTER", thumb, "CENTER", 0, 0)
+                highlight:SetVertexColor(1, 1, 1, 0.5)
+                highlight:SetBlendMode("ADD")
+                
+                thumb.value = item.value
+                thumb.label = item.label
+                
+                -- Tooltip
+                thumb:SetScript("OnEnter", function(self)
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetText(self.label)
+                    GameTooltip:Show()
+                end)
+                thumb:SetScript("OnLeave", function(self)
+                    GameTooltip:Hide()
+                end)
+                
+                -- Click handler (set by ShowForSetting)
+                thumb:SetScript("OnClick", function(self)
+                    if popup.onSelect then
+                        popup.onSelect(self.value, self.label)
+                    end
+                    -- Update selection display instead of closing
+                    popup:UpdateSelection(self.value)
+                    PlaySound("igMainMenuOptionCheckBoxOn")
+                end)
+                
+                table.insert(popup.thumbnails, thumb)
+                
+                itemsInRow = itemsInRow + 1
+                if itemsInRow >= thumbsPerRow then
+                    itemsInRow = 0
+                    contentY = contentY - (thumbSize + thumbSpacing)
+                end
+            end
+            
+            -- Move to next row if current row has items
+            if itemsInRow > 0 then
+                contentY = contentY - (thumbSize + thumbSpacing)
+            end
+            contentY = contentY - 5  -- Extra spacing between categories
+        end
+        
+        -- Set content height
+        scrollContent:SetHeight(math.abs(contentY) + 10)
+        
+        -- Update selection display
+        function popup:UpdateSelection(currentValue)
+            for _, thumb in ipairs(self.thumbnails) do
+                -- Hide all first, then show the matching one
+                thumb.selected:Hide()
+            end
+            for _, thumb in ipairs(self.thumbnails) do
+                if thumb.value == currentValue then
+                    thumb.selected:Show()
+                    break  -- Only one should match
+                end
+            end
+        end
+        
+        -- Show for a specific setting
+        function popup:ShowForSetting(settingKey, titleText, onSelect, anchorFrame)
+            self.settingKey = settingKey
+            self.onSelect = onSelect
+            self.title:SetText(titleText)
+            
+            local currentValue = GetSetting(settingKey)
+            self:UpdateSelection(currentValue)
+            
+            -- Position at screen coordinates (not anchored to scrolling content)
+            self:ClearAllPoints()
+            if anchorFrame then
+                -- Get the screen position of the anchor frame
+                local scale = anchorFrame:GetEffectiveScale()
+                local x, y = anchorFrame:GetCenter()
+                if x and y then
+                    -- Convert to screen coordinates and position popup to the right
+                    local anchorWidth = anchorFrame:GetWidth()
+                    local screenX = (x + anchorWidth/2) * scale
+                    local screenY = y * scale
+                    
+                    -- Set position relative to UIParent
+                    local uiScale = UIParent:GetEffectiveScale()
+                    self:SetPoint("LEFT", UIParent, "BOTTOMLEFT", screenX/uiScale + 10, screenY/uiScale)
+                else
+                    self:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+                end
+            else
+                self:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+            end
+            
+            self:Show()
+        end
+        
+        bgSelectorPopup = popup
+        return popup
+    end
+    
+    -- Helper to create background selector button
+    local function CreateBackgroundSelector(label, settingKey, isCharacterSpecific, onChangeCallback)
+        local labelText = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        labelText:SetPoint("TOPLEFT", 20, yOffset)
+        labelText:SetText(label)
+        yOffset = yOffset - 20
+        
+        -- Container for button and preview
+        local container = CreateFrame("Frame", nil, content)
+        container:SetSize(220, 30)
+        container:SetPoint("TOPLEFT", 20, yOffset)
+        
+        -- Preview thumbnail
+        local preview = container:CreateTexture(nil, "ARTWORK")
+        preview:SetSize(28, 28)
+        preview:SetPoint("LEFT", 0, 0)
+        container.preview = preview
+        
+        -- Border for preview using diamond metal classic border
+        local previewBorder = container:CreateTexture(nil, "OVERLAY")
+        previewBorder:SetTexture("Interface\\AddOns\\MOD-TRANSMOG-SYSTEM\\Assets\\uiframediamondmetalclassicborder")
+        previewBorder:SetTexCoord(0, 0.5625, 0, 0.5625)
+        previewBorder:SetSize(36, 36)  -- Slightly larger than 28x28 preview
+        previewBorder:SetPoint("CENTER", preview, "CENTER", 0, 0)
+        
+        -- Selection button
+        local btn = CreateFrame("Button", nil, container)
+        btn:SetSize(180, 26)
+        btn:SetPoint("LEFT", preview, "RIGHT", 8, 0)
+        btn:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true, tileSize = 8, edgeSize = 12,
+            insets = { left = 2, right = 2, top = 2, bottom = 2 }
+        })
+        btn:SetBackdropColor(0.15, 0.15, 0.15, 1)
+        btn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+        
+        local btnText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        btnText:SetPoint("LEFT", 8, 0)
+        btnText:SetPoint("RIGHT", -20, 0)
+        btnText:SetJustifyH("LEFT")
+        btn.text = btnText
+        
+        -- Arrow indicator (use simple "v" text that renders properly)
+        local arrow = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        arrow:SetPoint("RIGHT", -8, 0)
+        arrow:SetText("...")
+        
+        -- Update display function
+        local function UpdateDisplay()
+            local currentValue = GetSetting(settingKey)
+            btnText:SetText(GetBackgroundLabel(currentValue))
+            
+            -- Update preview texture
+            local texKey = currentValue
+            if not texKey then
+                local _, pClass = UnitClass("player")
+                texKey = pClass
+            end
+            local info = TEXTURE_INFO[texKey] or TEXTURE_INFO.WARLOCK
+            preview:SetTexture(info.path)
+            local contentW, contentH = info.contentW, info.contentH
+            local left = 0.15 * (contentW / 512)
+            local right = 0.85 * (contentW / 512)
+            local top = 0.15 * (contentH / 512)
+            local bottom = 0.85 * (contentH / 512)
+            preview:SetTexCoord(left, right, top, bottom)
+        end
+        
+        container.UpdateDisplay = UpdateDisplay
+        UpdateDisplay()
+        
+        -- Click handler
+        btn:SetScript("OnClick", function(self)
+            local popup = CreateBackgroundSelectorPopup()
+            popup:ShowForSetting(
+                settingKey,
+                label:gsub(":", ""),
+                function(value, valueLabel)
+                    SetSetting(settingKey, value, isCharacterSpecific)
+                    UpdateDisplay()
+                    if onChangeCallback then
+                        onChangeCallback(value)
+                    end
+                end,
+                container
+            )
+        end)
+        
+        -- Hover effect
+        btn:SetScript("OnEnter", function(self)
+            self:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
+        end)
+        btn:SetScript("OnLeave", function(self)
+            self:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+        end)
+        
+        -- Update on show
+        container:SetScript("OnShow", UpdateDisplay)
+        
+        yOffset = yOffset - 35
+        return container
+    end
+    
+    -- Dressing Room Background selector
+    CreateBackgroundSelector(
         L["SETTING_BACKGROUND"] or "Dressing Room Background:",
-        backgroundOptions,
         "backgroundOverride",
         true,  -- Character-specific
         function(value)
@@ -4494,25 +5016,11 @@ local function CreateSettingsPanel(parent)
         end
     )
     
-    yOffset = yOffset - 10
+    yOffset = yOffset - 5
     
-    -- Set Preview Background dropdown (character-specific)
-    local setPreviewBgOptions = {
-        { value = nil, label = L["SETTING_BG_AUTO"] or "Auto (Class)" },
-        { value = "WARRIOR", label = L["CLASS_WARRIOR"] or "Warrior" },
-        { value = "PALADIN", label = L["CLASS_PALADIN"] or "Paladin" },
-        { value = "HUNTER", label = L["CLASS_HUNTER"] or "Hunter" },
-        { value = "ROGUE", label = L["CLASS_ROGUE"] or "Rogue" },
-        { value = "PRIEST", label = L["CLASS_PRIEST"] or "Priest" },
-        { value = "DEATHKNIGHT", label = L["CLASS_DEATHKNIGHT"] or "Death Knight" },
-        { value = "SHAMAN", label = L["CLASS_SHAMAN"] or "Shaman" },
-        { value = "MAGE", label = L["CLASS_MAGE"] or "Mage" },
-        { value = "WARLOCK", label = L["CLASS_WARLOCK"] or "Warlock" },
-        { value = "DRUID", label = L["CLASS_DRUID"] or "Druid" },
-    }
-    CreateSettingsDropdown(
+    -- Set Preview Background selector
+    CreateBackgroundSelector(
         L["SETTING_SET_PREVIEW_BG"] or "Set Preview Background:",
-        setPreviewBgOptions,
         "setPreviewBackground",
         true,  -- Character-specific
         function(value)
@@ -4648,27 +5156,25 @@ local function CreateSetPreviewEntry(parent, index, setNumber, setData)
     modelFrame:SetSize(130, 175)
     modelFrame:SetPoint("TOPLEFT", 5, -18)
     
+    -- Frame dimensions for texture coordinate calculation (account for 2px insets)
+    local frameWidth, frameHeight = 126, 171
+    
     -- Background texture (class-based)
     local _, playerClass = UnitClass("player")
-    local backgroundClass = GetSetting("setPreviewBackground") or playerClass
-    local texturePath = TEXTURE_PATHS[backgroundClass] or TEXTURE_PATHS[playerClass] or TEXTURE_PATHS.WARLOCK
+    local backgroundKey = GetSetting("setPreviewBackground") or playerClass
     
     local bgTexture = modelFrame:CreateTexture(nil, "BACKGROUND")
     bgTexture:SetPoint("TOPLEFT", 2, -2)
     bgTexture:SetPoint("BOTTOMRIGHT", -2, 2)
-    bgTexture:SetTexture(texturePath)
     
-    -- Calculate cropping for the smaller frame (130x175)
-    local frameWidth, frameHeight = 130, 175
-    local frameAspect = frameWidth / frameHeight  -- ~0.74
-    local cropWidth = frameAspect
-    local left = (1 - cropWidth) / 2
-    local right = 1 - left
-    bgTexture:SetTexCoord(left, right, 0, 1)
+    -- Calculate proper texture coordinates based on content dimensions
+    local left, right, top, bottom, texturePath = CalculateTexCoords(backgroundKey, frameWidth, frameHeight)
+    bgTexture:SetTexture(texturePath)
+    bgTexture:SetTexCoord(left, right, top, bottom)
     
     modelFrame.bgTexture = bgTexture
-    modelFrame.texCoordLeft = left
-    modelFrame.texCoordRight = right
+    modelFrame.frameWidth = frameWidth
+    modelFrame.frameHeight = frameHeight
     
     -- Border only (no background fill since we have texture)
     modelFrame:SetBackdrop({
@@ -4679,12 +5185,12 @@ local function CreateSetPreviewEntry(parent, index, setNumber, setData)
     modelFrame:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
     
     -- Update background function
-    function modelFrame:UpdateBackground(overrideClass)
+    function modelFrame:UpdateBackground(overrideKey)
         local _, currentClass = UnitClass("player")
-        local bgClass = overrideClass or GetSetting("setPreviewBackground") or currentClass
-        local newTexturePath = TEXTURE_PATHS[bgClass] or TEXTURE_PATHS[currentClass] or TEXTURE_PATHS.WARLOCK
+        local bgKey = overrideKey or GetSetting("setPreviewBackground") or currentClass
+        local left, right, top, bottom, newTexturePath = CalculateTexCoords(bgKey, self.frameWidth, self.frameHeight)
         self.bgTexture:SetTexture(newTexturePath)
-        self.bgTexture:SetTexCoord(self.texCoordLeft, self.texCoordRight, 0, 1)
+        self.bgTexture:SetTexCoord(left, right, top, bottom)
     end
     
     -- Create dress up model with proper positioning
