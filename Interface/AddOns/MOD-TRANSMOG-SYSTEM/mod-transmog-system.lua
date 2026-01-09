@@ -2149,7 +2149,35 @@ RefreshDressingRoomModel = function(previewItems)
             C_Timer.After(0.05, function()
                 for slotName, itemId in pairs(previewItems) do
                     if itemId then
-                        mdl:TryOn(itemId)
+                        -- Check if weapon slot has an enchant visual to preserve
+                        local enchantIdToPreserve = nil
+                        if ENCHANT_ELIGIBLE_SLOTS[slotName] then
+                            local slotId = SLOT_NAME_TO_EQUIP_SLOT[slotName]
+                            local invSlot = slotId + 1  -- WoW inventory slots are 1-indexed
+                            -- Priority: selected enchant > active enchant > real equipped enchant
+                            if slotSelectedEnchants[slotName] then
+                                enchantIdToPreserve = slotSelectedEnchants[slotName]
+                            elseif activeEnchantTransmogs[slotId] then
+                                enchantIdToPreserve = activeEnchantTransmogs[slotId]
+                            else
+                                -- Fallback: get real enchant from equipped item link
+                                local itemLink = GetInventoryItemLink("player", invSlot)
+                                if itemLink then
+                                    local _, _, enchantStr = string.find(itemLink, "item:%d+:(%d+)")
+                                    local realEnchant = enchantStr and tonumber(enchantStr)
+                                    if realEnchant and realEnchant > 0 then
+                                        enchantIdToPreserve = realEnchant
+                                    end
+                                end
+                            end
+                        end
+                        
+                        if enchantIdToPreserve then
+                            local itemLinkWithEnchant = string.format("item:%d:%d:0:0:0:0:0:0:0", itemId, enchantIdToPreserve)
+                            mdl:TryOn(itemLinkWithEnchant)
+                        else
+                            mdl:TryOn(itemId)
+                        end
                     end
                 end
                 mdl:SetPosition(0, 0, 0)
@@ -2160,7 +2188,35 @@ RefreshDressingRoomModel = function(previewItems)
             C_Timer.After(0.05, function()
                 for slotId, itemId in pairs(activeTransmogs) do
                     if itemId then
-                        mdl:TryOn(itemId)
+                        -- Check if weapon slot (15=MainHand, 16=SecondaryHand) has an enchant visual
+                        local enchantIdToPreserve = nil
+                        if slotId == 15 or slotId == 16 then
+                            local slotName = (slotId == 15) and "MainHand" or "SecondaryHand"
+                            local invSlot = slotId + 1  -- WoW inventory slots are 1-indexed
+                            -- Priority: selected enchant > active enchant > real equipped enchant
+                            if slotSelectedEnchants[slotName] then
+                                enchantIdToPreserve = slotSelectedEnchants[slotName]
+                            elseif activeEnchantTransmogs[slotId] then
+                                enchantIdToPreserve = activeEnchantTransmogs[slotId]
+                            else
+                                -- Fallback: get real enchant from equipped item link
+                                local itemLink = GetInventoryItemLink("player", invSlot)
+                                if itemLink then
+                                    local _, _, enchantStr = string.find(itemLink, "item:%d+:(%d+)")
+                                    local realEnchant = enchantStr and tonumber(enchantStr)
+                                    if realEnchant and realEnchant > 0 then
+                                        enchantIdToPreserve = realEnchant
+                                    end
+                                end
+                            end
+                        end
+                        
+                        if enchantIdToPreserve then
+                            local itemLinkWithEnchant = string.format("item:%d:%d:0:0:0:0:0:0:0", itemId, enchantIdToPreserve)
+                            mdl:TryOn(itemLinkWithEnchant)
+                        else
+                            mdl:TryOn(itemId)
+                        end
                     end
                 end
                 mdl:SetPosition(0, 0, 0)
@@ -2525,7 +2581,38 @@ local function CreateItemFrame(parent, index)
                     
                     if dressingRoom then
                         PlaySound("igMainMenuOptionCheckBoxOn")
-                        dressingRoom.model:TryOn(f.itemId)
+                        
+                        -- Check if weapon slot has an enchant visual to preserve
+                        local enchantIdToPreserve = nil
+                        if ENCHANT_ELIGIBLE_SLOTS[currentSlot] then
+                            local slotId = SLOT_NAME_TO_EQUIP_SLOT[currentSlot]
+                            local invSlot = slotId + 1  -- WoW inventory slots are 1-indexed
+                            -- Priority: selected enchant > active enchant > real equipped enchant
+                            if slotSelectedEnchants[currentSlot] then
+                                enchantIdToPreserve = slotSelectedEnchants[currentSlot]
+                            elseif activeEnchantTransmogs[slotId] then
+                                enchantIdToPreserve = activeEnchantTransmogs[slotId]
+                            else
+                                -- Fallback: get real enchant from equipped item link
+                                local itemLink = GetInventoryItemLink("player", invSlot)
+                                if itemLink then
+                                    -- Parse enchant ID from item link: "item:itemId:enchantId:..."
+                                    local _, _, enchantStr = string.find(itemLink, "item:%d+:(%d+)")
+                                    local realEnchant = enchantStr and tonumber(enchantStr)
+                                    if realEnchant and realEnchant > 0 then
+                                        enchantIdToPreserve = realEnchant
+                                    end
+                                end
+                            end
+                        end
+                        
+                        if enchantIdToPreserve then
+                            -- Use item link format to preserve enchant visual
+                            local itemLinkWithEnchant = string.format("item:%d:%d:0:0:0:0:0:0:0", f.itemId, enchantIdToPreserve)
+                            dressingRoom.model:TryOn(itemLinkWithEnchant)
+                        else
+                            dressingRoom.model:TryOn(f.itemId)
+                        end
                     end
                 end
             end
