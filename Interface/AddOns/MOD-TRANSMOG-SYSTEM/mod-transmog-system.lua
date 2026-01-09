@@ -2013,11 +2013,15 @@ local function OnTooltipSetItem(tooltip)
     end
     tooltipProcessedItem[tooltipName] = itemId
     
+    -- Track if we need to add appearance info (only for eligible items)
+    local isEligible = true
+    
     -- Check cache first
     local cached = appearanceCache[itemId]
     if cached then
-        if not cached.eligible then return end
-        if cached.collected then
+        if not cached.eligible then
+            isEligible = false
+        elseif cached.collected then
             if IsSettingEnabled("showCollectedTooltip") then
                 tooltip:AddLine(L["APPEARANCE_COLLECTED"])
             end
@@ -2027,31 +2031,43 @@ local function OnTooltipSetItem(tooltip)
             end
         end
         -- Add shared appearance info
-        AddSharedAppearanceToTooltip(tooltip, itemId, "showSharedAppearanceTooltip")
-        tooltip:Show()
-        return
-    end
-    
-    -- Check local collection (from SavedVariables/runtime cache)
-    if IsAppearanceCollected(itemId) then
-        if IsSettingEnabled("showCollectedTooltip") then
-            tooltip:AddLine(L["APPEARANCE_COLLECTED"])
+        if isEligible then
+            AddSharedAppearanceToTooltip(tooltip, itemId, "showSharedAppearanceTooltip")
         end
     else
-        if IsSettingEnabled("showNewAppearanceTooltip") then
-            tooltip:AddLine(L["NEW_APPEARANCE"])
+        -- Check local collection (from SavedVariables/runtime cache)
+        if IsAppearanceCollected(itemId) then
+            if IsSettingEnabled("showCollectedTooltip") then
+                tooltip:AddLine(L["APPEARANCE_COLLECTED"])
+            end
+        else
+            if IsSettingEnabled("showNewAppearanceTooltip") then
+                tooltip:AddLine(L["NEW_APPEARANCE"])
+            end
+        end
+        
+        -- Add shared appearance info
+        AddSharedAppearanceToTooltip(tooltip, itemId, "showSharedAppearanceTooltip")
+        
+        -- Not in cache - ask server (only once per item per session)
+        if not pendingTooltipChecks[itemId] then
+            pendingTooltipChecks[itemId] = true
+            AIO.Msg():Add("TRANSMOG", "CheckAppearance", itemId):Send()
         end
     end
     
-    -- Add shared appearance info
-    AddSharedAppearanceToTooltip(tooltip, itemId, "showSharedAppearanceTooltip")
-    tooltip:Show()
-    
-    -- Not in cache - ask server (only once per item per session)
-    if not pendingTooltipChecks[itemId] then
-        pendingTooltipChecks[itemId] = true
-        AIO.Msg():Add("TRANSMOG", "CheckAppearance", itemId):Send()
+    -- Add Item ID and Display ID if settings enabled (always, regardless of eligibility)
+    if IsSettingEnabled("showItemIdTooltip") then
+        tooltip:AddLine(string.format("Item ID: %d", itemId), 0.6, 0.6, 0.6)
     end
+    if IsSettingEnabled("showDisplayIdTooltip") then
+        local displayId = GetDisplayIdForItem(itemId)
+        if displayId and displayId > 0 then
+            tooltip:AddLine(string.format("Display ID: %d", displayId), 0.6, 0.6, 0.6)
+        end
+    end
+    
+    tooltip:Show()
 end
 
 -- Clear deduplication tracking when tooltip is hidden
@@ -2660,15 +2676,7 @@ local function CreateItemFrame(parent, index)
         if f.itemId and f.isLoaded then
             GameTooltip:SetOwner(f, "ANCHOR_TOPRIGHT")
             GameTooltip:SetHyperlink("item:"..f.itemId)
-            
-            -- Add Item ID and Display ID for cross-locale sharing (if enabled)
-            if IsSettingEnabled("showItemIdTooltip") then
-                GameTooltip:AddLine(" ")
-                GameTooltip:AddLine(string.format("Item ID: %d", f.itemId), 0.6, 0.6, 0.6)
-            end
-            if f.displayId and IsSettingEnabled("showDisplayIdTooltip") then
-                GameTooltip:AddLine(string.format("Display ID: %d", f.displayId), 0.6, 0.6, 0.6)
-            end
+            -- Note: Item ID and Display ID are added by OnTooltipSetItem hook if settings enabled
             
             -- Check if appearance is available (exact item or shared display ID)
             local isAvailable, _ = IsAppearanceAvailable(f.itemId)
