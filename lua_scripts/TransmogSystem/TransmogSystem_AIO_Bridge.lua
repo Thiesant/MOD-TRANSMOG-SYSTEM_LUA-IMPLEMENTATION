@@ -1926,9 +1926,6 @@ if ENABLE_AIO_BRIDGE then
             return
         end
         
-        -- Weapon slots should never be force-hidden
-        local WEAPON_SLOTS = { [15] = true, [16] = true, [17] = true }
-        
         local accountId = player:GetAccountId()
         local guid = player:GetGUIDLow()
         local playerName = player:GetName()  -- Store name for callback
@@ -2013,9 +2010,9 @@ if ENABLE_AIO_BRIDGE then
                             skippedCount = skippedCount + 1
                             DebugPrint(string.format("[Transmog] ApplySet: Skipped slot %d, item %d not in collection", slot, itemId))
                         end
-                    elseif itemId == 0 and applyHiddenSlots and not WEAPON_SLOTS[slot] then
+                    elseif itemId == 0 and applyHiddenSlots and ALLOW_HIDE_SLOT[slot] then
                         -- Slot is explicitly hidden in set and user wants to apply hidden slots
-                        -- (but never force-hide weapon slots)
+                        -- Only apply if hiding is allowed for this slot per server configuration
                         SaveActiveTransmog(guid, slot, 0)
                         
                         -- Apply hide visual if item equipped
