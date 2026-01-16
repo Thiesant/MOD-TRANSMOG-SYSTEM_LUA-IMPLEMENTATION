@@ -1701,6 +1701,11 @@ if ENABLE_AIO_BRIDGE then
         AIO.Msg():Add("TRANSMOG", "EnchantRemoved", slotId):Send(player)
     end
     
+    TRANSMOG_HANDLER.MirrorImageReady = function(player)
+        if _G.MirrorImage_OnClientReady then
+            _G.MirrorImage_OnClientReady(player)
+        end
+    end
     -- ============================================================================
     -- Set Management - Database Functions
     -- ============================================================================
@@ -2172,6 +2177,7 @@ if ENABLE_AIO_BRIDGE then
     local PLAYER_EVENT_ON_CHARACTER_DELETE          = 2  -- (event, guid)
     local PLAYER_EVENT_ON_LOGIN                     = 3  -- (event, player) 
     local PLAYER_EVENT_ON_LOGOUT                    = 4  -- (event, player)
+    local PLAYER_EVENT_ON_MAP_CHANGE                = 28 -- (event, player)
     local PLAYER_EVENT_ON_EQUIP                     = 29 -- (event, player, item, bag, slot)
     local PLAYER_EVENT_ON_LOOT_ITEM                 = 32 -- (event, player, item, count)
     local PLAYER_EVENT_ON_COMMAND                   = 42 -- (event, player, command, chatHandler) - player is nil if command used from console. Can return false
@@ -2184,6 +2190,9 @@ if ENABLE_AIO_BRIDGE then
     -- creature_event
     local CREATURE_EVENT_ON_DIED                    = 4  -- (event, creature, killer)
     local CREATURE_EVENT_ON_SUMMONED                = 22 -- (event, creature, summoner)
+    local CREATURE_EVENT_ON_CORPSE_REMOVED          = 26 -- (event, creature, respawndelay)
+    local CREATURE_EVENT_ON_MOVE_IN_LOS             = 27 -- (event, creature, unit)
+    local CREATURE_EVENT_ON_REMOVE                  = 37 -- (event, creature)
     
     -- ============================================================================
     -- Helper Function - Scan Items and Quests
@@ -2607,66 +2616,175 @@ if ENABLE_AIO_BRIDGE then
     if MIRROR_IMAGE_TRANSMOG_ENABLED then
         local MIRROR_IMAGE_ENTRY = 31216
         
-        -- Creature events
-        local CREATURE_EVENT_ON_SUMMONED  = 22
-        local CREATURE_EVENT_ON_MOVE_IN_LOS = 27
-        local CREATURE_EVENT_ON_DIED = 4
-        local CREATURE_EVENT_ON_REMOVE = 37
-        local CREATURE_EVENT_ON_CORPSE_REMOVED = 26
-        
         -- Equipment slots for SMSG_MIRRORIMAGE_DATA
         local MirrorArmorSlots = {0, 2, 3, 4, 5, 6, 7, 8, 9, 14, 18}
         local MirrorWeaponSlots = {15, 16, 17}
         
-        -- Cache: [creatureGUID] = { PacketStore, PlayerCache }
+        -- Cache stores DATA (not packets) - allows rebuilding fresh packets per-send
+        -- Structure: MirrorCache[creatureGuidStr] = {
+        --     DisplayId, Race, Gender, Class, Skin, Face, HairStyle, HairColor,
+        --     FacialHair, GuildId, ArmorDisplayIds = {}, PlayerCache = {}
+        -- }
         local MirrorCache = {}
         
-        -- ========================================
-        -- Get item display ID
-        -- ========================================
-        local function GetMirrorDisplayId(itemId)
-            if not itemId or itemId == 0 then return 0 end
-            if SERVER_ITEM_CACHE.isReady and SERVER_ITEM_CACHE.byItemId[itemId] then
-                return SERVER_ITEM_CACHE.byItemId[itemId].displayid or 0
+        -- Track players who recently had a map change (teleport/login)
+        -- These need longer delays for the client to be ready
+        -- Structure: RecentMapChange[playerGuidStr] = timestamp
+        local RecentMapChange = {}
+        
+        local function GetMirrorDisplayId(itemEntry)
+            if not itemEntry or itemEntry <= 0 then return 0 end
+            if ServerItemCache and ServerItemCache[itemEntry] then
+                return ServerItemCache[itemEntry].displayId or 0
             end
-            local template = GetItemTemplate(itemId)
-            return template and template.displayid or 0
+            local query = WorldDBQuery("SELECT displayid FROM item_template WHERE entry = " .. itemEntry)
+            if query then
+                return query:GetUInt32(0)
+            end
+            return 0
+        end
+        
+        local function CleanupMirrorCache(guidStr)
+            if MirrorCache[guidStr] then
+                MirrorDebug("[Mirror Image] Cleaning up cache for " .. guidStr)
+                MirrorCache[guidStr] = nil
+            end
         end
         
         -- ========================================
-        -- Send stored packet via creature broadcast
+        -- Helper: Build fresh SMSG_MIRRORIMAGE_DATA packet
         -- ========================================
-        local function SendMirrorPacket(target)
-            if not target then 
-                MirrorDebug("[Mirror Image] ERROR: target is nil in SendMirrorPacket")
-                return 
+        local function BuildMirrorPacket(creatureGUID, cacheData)
+            local packet = CreatePacket(0x402, 68)
+            
+            packet:WriteGUID(creatureGUID)
+            packet:WriteULong(cacheData.DisplayId)
+            packet:WriteUByte(cacheData.Race)
+            packet:WriteUByte(cacheData.Gender)
+            packet:WriteUByte(cacheData.Class)
+            packet:WriteUByte(cacheData.Skin)
+            packet:WriteUByte(cacheData.Face)
+            packet:WriteUByte(cacheData.HairStyle)
+            packet:WriteUByte(cacheData.HairColor)
+            packet:WriteUByte(cacheData.FacialHair)
+            packet:WriteULong(cacheData.GuildId)
+            
+            -- Write armor display IDs
+            for i = 1, #MirrorArmorSlots do
+                packet:WriteULong(cacheData.ArmorDisplayIds[i] or 0)
             end
             
-            -- Use pcall since creature may have despawned
-            local success, tGUID = pcall(function() return target:GetGUID() end)
-            if not success or not tGUID then
-                MirrorDebug("[Mirror Image] ERROR: Could not get GUID from target (invalidated)")
-                return
-            end
-            
-            if not MirrorCache[tGUID] then
-                MirrorDebug(string.format("[Mirror Image] ERROR: No cache for GUID %s", tostring(tGUID)))
-                return
-            end
-            
-            if not MirrorCache[tGUID].PacketStore then
-                MirrorDebug("[Mirror Image] ERROR: No packet stored")
-                return
-            end
-            
-            MirrorDebug(string.format("[Mirror Image] Broadcasting packet for GUID %s", tostring(tGUID)))
-            
-            -- Protected SendPacket in case creature despawned between checks
-            pcall(function() target:SendPacket(MirrorCache[tGUID].PacketStore) end)
+            return packet
         end
         
         -- ========================================
-        -- ON_SUMMONED - Build packet and apply transmog appearance
+        -- Helper: Send packet to specific player
+        -- Builds fresh packet and sends directly to player
+        -- ========================================
+        local function SendMirrorPacketToPlayer(creatureGUID, player, cacheData)
+            if not creatureGUID or not player or not cacheData then return end
+            
+            if not player:IsInWorld() then
+                MirrorDebug("[Mirror Image] SendPacket: player not in world")
+                return
+            end
+            
+            -- Build fresh packet for this specific send
+            local packet = BuildMirrorPacket(creatureGUID, cacheData)
+            
+            -- Send directly to the specific player (not broadcast)
+            player:SendPacket(packet)
+            
+            MirrorDebug(string.format("[Mirror Image] Sent packet to %s", player:GetName()))
+        end
+        
+        -- ========================================
+        -- Helper: Delayed send using player GUID lookup
+        -- For initial caster and LOS players (they need slight delay for client to be ready)
+        -- ========================================
+        local function SendMirrorPacketDelayed(creatureGuidStr, playerGUID)
+            -- Get cache data (might be gone if creature despawned)
+            local cacheData = MirrorCache[creatureGuidStr]
+            if not cacheData then
+                MirrorDebug("[Mirror Image] Delayed send: cache no longer exists (creature despawned)")
+                return
+            end
+            
+            -- Look up player by GUID (needs actual GUID object, not string)
+            local player = GetPlayerByGUID(playerGUID)
+            if not player then
+                MirrorDebug("[Mirror Image] Delayed send: player no longer exists")
+                return
+            end
+            
+            if not player:IsInWorld() then
+                MirrorDebug("[Mirror Image] Delayed send: player not in world")
+                return
+            end
+            
+            -- The packet needs the creature GUID object (stored in cache)
+            if not cacheData.CreatureGUID then
+                MirrorDebug("[Mirror Image] Delayed send: no creature GUID in cache")
+                return
+            end
+            
+            -- Build fresh packet and send
+            local packet = BuildMirrorPacket(cacheData.CreatureGUID, cacheData)
+            player:SendPacket(packet)
+            
+            MirrorDebug(string.format("[Mirror Image] Delayed send to %s completed", player:GetName()))
+        end
+        
+        -- ========================================
+        -- Helper: Schedule packet send for normal LOS (walking in)
+        -- Teleport/login is handled by MirrorImageReady client signal
+        -- ========================================
+        local function ScheduleMirrorPacketSend(creatureGuidStr, playerGUID, playerGuidStr)
+            local player = GetPlayerByGUID(playerGUID)
+            local latency = player and player:GetLatency() or 0
+            
+            CreateLuaEvent(function()
+                SendMirrorPacketDelayed(creatureGuidStr, playerGUID)
+            end, latency + 100, 1)
+        end
+        
+        -- ========================================
+        -- Helper: Send mirror data for all nearby clones to a player
+        -- Called when client signals it's ready (after PLAYER_ENTERING_WORLD)
+        -- Uses delayed send like LOS path to avoid client crash
+        -- ========================================
+        local function SendAllMirrorDataToPlayer(player)
+            if not player or not player:IsInWorld() then return end
+            
+            local playerGuidStr = tostring(player:GetGUID())
+            local playerGUID = player:GetGUID()
+            local playerMapId = player:GetMapId()
+            local latency = player:GetLatency() or 0
+            local sentCount = 0
+            
+            for creatureGuidStr, cacheData in pairs(MirrorCache) do
+                if cacheData and cacheData.CreatureGUID then
+                    if cacheData.MapId == playerMapId then
+                        -- Reset player cache entry to allow send
+                        cacheData.PlayerCache[playerGuidStr] = true
+                        sentCount = sentCount + 1
+                        CreateLuaEvent(function()
+                            SendMirrorPacketDelayed(creatureGuidStr, playerGUID)
+                        end, latency + 100, 1)
+                    end
+                end
+            end
+            
+            if sentCount > 0 then
+                MirrorDebug(string.format("[Mirror Image] Client ready signal: scheduled %d clone packets for %s", sentCount, player:GetName()))
+            end
+        end
+        
+        -- Export function for AIO handler to call
+        _G.MirrorImage_OnClientReady = SendAllMirrorDataToPlayer
+        
+        -- ========================================
+        -- ON_SUMMONED - Initial setup when clone spawns
         -- ========================================
         local function OnMirrorImageSummoned(event, creature, summoner)
             MirrorDebug("[Mirror Image] === ON_SUMMONED EVENT ===")
@@ -2693,37 +2811,15 @@ if ENABLE_AIO_BRIDGE then
                 return
             end
             
-            MirrorDebug(string.format("[Mirror Image] Summoned for %s, Creature GUID: %s", player:GetName(), tostring(tGUID)))
+            local guidStr = tostring(tGUID)
+            local playerGuidStr = tostring(player:GetGUID())
+            
+            MirrorDebug(string.format("[Mirror Image] Summoned for %s, Creature GUID: %s", player:GetName(), guidStr))
             MirrorDebug(string.format("[Mirror Image] Player DisplayID: %d, Race: %d, Gender: %d, Class: %d", 
                 player:GetDisplayId(), player:GetRace(), player:GetGender(), player:GetClass()))
             
-            -- Initialize cache
-            MirrorCache[tGUID] = {
-                PacketStore = nil,
-                PlayerCache = {}
-            }
-            
-            -- Build SMSG_MIRRORIMAGE_DATA packet
-            local packet = CreatePacket(0x402, 68)
-            
-            packet:WriteGUID(tGUID)
-            packet:WriteULong(player:GetDisplayId())
-            packet:WriteUByte(player:GetRace())
-            packet:WriteUByte(player:GetGender())
-            packet:WriteUByte(player:GetClass())
-            packet:WriteUByte(player:GetByteValue(153, 0))  -- Skin
-            packet:WriteUByte(player:GetByteValue(153, 1))  -- Face
-            packet:WriteUByte(player:GetByteValue(153, 2))  -- Hair Style
-            packet:WriteUByte(player:GetByteValue(153, 3))  -- Hair Color
-            packet:WriteUByte(player:GetByteValue(154, 0))  -- Facial Hair
-            
-            if player:IsInGuild() then
-                packet:WriteULong(player:GetGuildId())
-            else
-                packet:WriteULong(0)
-            end
-            
-            -- Armor display IDs (with transmog support)
+            -- Collect armor display IDs (with transmog support)
+            local armorDisplayIds = {}
             MirrorDebug("[Mirror Image] === ARMOR DISPLAY IDS ===")
             for i, slot in ipairs(MirrorArmorSlots) do
                 local displayId = 0
@@ -2754,13 +2850,29 @@ if ENABLE_AIO_BRIDGE then
                 end
                 
                 MirrorDebug(string.format("[Mirror Image] Slot %d: DisplayID = %d (%s)", slot, displayId, source))
-                packet:WriteULong(displayId)
+                armorDisplayIds[i] = displayId
             end
             MirrorDebug("[Mirror Image] === END ARMOR ===")
             
-            -- Store packet
-            MirrorCache[tGUID].PacketStore = packet
-            MirrorCache[tGUID].PlayerCache[player:GetGUID()] = true
+            -- Store DATA (not packet) - allows rebuilding fresh packets per-send
+            -- Also store CreatureGUID and MapId for delayed sends
+            MirrorCache[guidStr] = {
+                CreatureGUID = tGUID,  -- Store actual GUID object for packet building
+                MapId = player:GetMapId(),  -- Store map for safety checks
+                DisplayId = player:GetDisplayId(),
+                Race = player:GetRace(),
+                Gender = player:GetGender(),
+                Class = player:GetClass(),
+                Skin = player:GetByteValue(153, 0),
+                Face = player:GetByteValue(153, 1),
+                HairStyle = player:GetByteValue(153, 2),
+                HairColor = player:GetByteValue(153, 3),
+                FacialHair = player:GetByteValue(154, 0),
+                GuildId = player:IsInGuild() and player:GetGuildId() or 0,
+                ArmorDisplayIds = armorDisplayIds,
+                PlayerCache = {}
+            }
+            MirrorCache[guidStr].PlayerCache[playerGuidStr] = true
             
             -- Set creature visuals
             target:SetUInt32Value(60, 16)  -- Mirror Image flag
@@ -2798,63 +2910,73 @@ if ENABLE_AIO_BRIDGE then
             end
             MirrorDebug("[Mirror Image] === END WEAPONS ===")
             
-            -- Send packet with delay and immediately
-            MirrorDebug("[Mirror Image] Sending initial packet...")
-            CreateLuaEvent(function() SendMirrorPacket(target) end, player:GetLatency() + 100, 1)
-            
-            MirrorDebug("[Mirror Image] Also sending packet immediately...")
-            target:SendPacket(packet)
+            -- Use delayed function that looks up player by GUID object
+            local playerGUID = player:GetGUID()  -- Store actual GUID object for lookup
+            local latency = player:GetLatency() or 0
+            CreateLuaEvent(function()
+                SendMirrorPacketDelayed(guidStr, playerGUID)
+            end, latency + 100, 1)
             
             MirrorDebug("[Mirror Image] === SUMMONED COMPLETE ===")
         end
         
         -- ========================================
         -- ON_MOVE_IN_LOS - Handle players entering range
+        -- Only handles normal walking-in. Teleport/login handled by MirrorImageReady
         -- ========================================
         local function OnMirrorImageLOS(event, creature, unit)
             if not creature or not unit then return end
+            if not creature:IsInWorld() then return end
             
             local unitType = unit:GetObjectType()
-            MirrorDebug(string.format("[Mirror Image] LOS: unit type = %s", tostring(unitType)))
-            
             if unitType ~= "Player" then return end
             
             local player = unit
+            if not player:IsInWorld() then return end
+            
             local tGUID = creature:GetGUID()
+            if not tGUID then return end
             
-            MirrorDebug(string.format("[Mirror Image] LOS: Player %s, Creature GUID %s", player:GetName(), tostring(tGUID)))
+            local guidStr = tostring(tGUID)
+            local playerGuidStr = tostring(player:GetGUID())
             
-            if not tGUID or not MirrorCache[tGUID] then 
-                MirrorDebug("[Mirror Image] LOS: No cache for this creature")
+            MirrorDebug(string.format("[Mirror Image] LOS: Player %s, Creature GUID %s", player:GetName(), guidStr))
+            
+            if not MirrorCache[guidStr] then 
+                MirrorDebug("[Mirror Image] LOS: No cache for this creature (not a transmog clone)")
                 return 
             end
             
-            local playerGUID = player:GetGUID()
-            if MirrorCache[tGUID].PlayerCache[playerGUID] == true then 
+            if MirrorCache[guidStr].PlayerCache[playerGuidStr] == true then 
                 MirrorDebug(string.format("[Mirror Image] LOS: %s already in cache, skipping", player:GetName()))
                 return 
             end
             
-            MirrorCache[tGUID].PlayerCache[playerGUID] = true
-            MirrorDebug(string.format("[Mirror Image] LOS: Sending packet to %s", player:GetName()))
-            CreateLuaEvent(function() SendMirrorPacket(creature) end, player:GetLatency() + 100, 1)
+            -- Skip if player recently teleported - MirrorImageReady will handle it
+            local currentTime = os.time()
+            if RecentMapChange[playerGuidStr] then
+                local timeSinceMapChange = currentTime - RecentMapChange[playerGuidStr]
+                if timeSinceMapChange < 5 then
+                    MirrorDebug(string.format("[Mirror Image] LOS: %s had recent map change, skipping (client-ready will handle)", player:GetName()))
+                    return
+                end
+                RecentMapChange[playerGuidStr] = nil
+            end
+            
+            MirrorCache[guidStr].PlayerCache[playerGuidStr] = true
+            
+            local playerGUID = player:GetGUID()
+            ScheduleMirrorPacketSend(guidStr, playerGUID, playerGuidStr)
         end
         
         -- ========================================
         -- Cleanup
         -- ========================================
-        local function CleanupMirrorCache(creatureGUID)
-            if MirrorCache[creatureGUID] then
-                MirrorCache[creatureGUID] = nil
-                MirrorDebug(string.format("[Mirror Image] Cache cleaned: %s", tostring(creatureGUID)))
-            end
-        end
-        
         local function OnMirrorImageDied(event, creature, killer)
             MirrorDebug("[Mirror Image] === DIED EVENT ===")
             if creature then
                 local guid = creature:GetGUID()
-                if guid then CleanupMirrorCache(guid) end
+                if guid then CleanupMirrorCache(tostring(guid)) end
             end
         end
         
@@ -2862,7 +2984,7 @@ if ENABLE_AIO_BRIDGE then
             MirrorDebug("[Mirror Image] === REMOVE EVENT ===")
             if creature then
                 local guid = creature:GetGUID()
-                if guid then CleanupMirrorCache(guid) end
+                if guid then CleanupMirrorCache(tostring(guid)) end
             end
         end
         
@@ -2870,72 +2992,45 @@ if ENABLE_AIO_BRIDGE then
             MirrorDebug("[Mirror Image] === CORPSE_REMOVED EVENT ===")
             if creature then
                 local guid = creature:GetGUID()
-                if guid then CleanupMirrorCache(guid) end
+                if guid then CleanupMirrorCache(tostring(guid)) end
             end
         end
         
-        -- Player logout - clear from cache
+        -- Player logout - clear from PlayerCache entries and RecentMapChange
         local function OnPlayerLogoutMirror(event, player)
             if not player then return end
-            local playerGUID = player:GetGUID()
+            local playerGuidStr = tostring(player:GetGUID())
             for _, cache in pairs(MirrorCache) do
-                if cache.PlayerCache and cache.PlayerCache[playerGUID] then
-                    cache.PlayerCache[playerGUID] = nil
+                if cache.PlayerCache and cache.PlayerCache[playerGuidStr] then
+                    cache.PlayerCache[playerGuidStr] = nil
                 end
             end
+            -- Cleanup map change tracking
+            RecentMapChange[playerGuidStr] = nil
         end
         
-        RegisterPlayerEvent(4, OnPlayerLogoutMirror)
-        
-        -- Player login - send packets for any nearby Mirror Images
-        -- This handles the case where a player logs in next to existing clones
-        -- (LOS event doesn't fire if already in range)
-        local function OnPlayerLoginMirror(event, player)
+        -- Player map change - clear from PlayerCache to allow packet re-send
+        -- Also mark player as recently teleported (needs staggered sends)
+        local function OnPlayerMapChangeMirror(event, player)
             if not player then return end
+            local playerGuidStr = tostring(player:GetGUID())
+            MirrorDebug(string.format("[Mirror Image] Map change: clearing cache for %s", player:GetName()))
             
-            -- Store player info to retrieve fresh reference in callback
-            local playerName = player:GetName()
+            -- Clear player from all creature caches (allows LOS to re-trigger)
+            for _, cache in pairs(MirrorCache) do
+                if cache.PlayerCache and cache.PlayerCache[playerGuidStr] then
+                    cache.PlayerCache[playerGuidStr] = nil
+                end
+            end
             
-            -- Delay to ensure player is fully loaded in world (needs longer delay for grid visibility)
-            CreateLuaEvent(function()
-                -- Get fresh player reference
-                local p = GetPlayerByName(playerName)
-                if not p then return end
-                
-                -- Check player is in world (protected)
-                local success, inWorld = pcall(function() return p:IsInWorld() end)
-                if not success or not inWorld then return end
-                
-                local playerGUID = p:GetGUID()
-                local playerMap = p:GetMapId()
-                local px, py, pz = p:GetX(), p:GetY(), p:GetZ()
-                
-                MirrorDebug(string.format("[Mirror Image] Login check for %s at map %d (%.1f, %.1f, %.1f)", 
-                    playerName, playerMap, px, py, pz))
-                
-                -- Iterate through all cached Mirror Images
-                local sentCount = 0
-                for creatureGUID, cache in pairs(MirrorCache) do
-                    if cache and cache.PacketStore and not cache.PlayerCache[playerGUID] then
-                        -- We have a cached mirror image that this player hasn't seen
-                        -- Send the packet - client will handle if creature is in range
-                        cache.PlayerCache[playerGUID] = true
-                        p:SendPacket(cache.PacketStore)
-                        sentCount = sentCount + 1
-                        MirrorDebug(string.format("[Mirror Image] Login: Sent packet for GUID %s to %s", 
-                            tostring(creatureGUID), playerName))
-                    end
-                end
-                
-                if sentCount > 0 then
-                    MirrorDebug(string.format("[Mirror Image] Login: Sent %d packets to %s", sentCount, playerName))
-                else
-                    MirrorDebug(string.format("[Mirror Image] Login: No unseen Mirror Images for %s", playerName))
-                end
-            end, 1500, 1)  -- 1.5s delay for full world/grid load
+            -- Mark player as recently teleported - LOS handler will use staggered sends
+            RecentMapChange[playerGuidStr] = os.time()
+            MirrorDebug(string.format("[Mirror Image] Marked %s as recent map change", player:GetName()))
         end
         
-        RegisterPlayerEvent(3, OnPlayerLoginMirror)  -- PLAYER_EVENT_ON_LOGIN = 3
+        -- Register player events
+        RegisterPlayerEvent(PLAYER_EVENT_ON_LOGOUT, OnPlayerLogoutMirror)
+        RegisterPlayerEvent(PLAYER_EVENT_ON_MAP_CHANGE, OnPlayerMapChangeMirror)
         
         -- Register creature events
         MirrorDebug("[Mirror Image] Registering creature events for entry " .. MIRROR_IMAGE_ENTRY)

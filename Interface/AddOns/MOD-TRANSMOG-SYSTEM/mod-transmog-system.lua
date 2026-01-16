@@ -7158,6 +7158,31 @@ initFrame:SetScript("OnEvent", function(self, event)
 end)
 
 -- ============================================================================
+-- MIRROR IMAGE CLIENT READY SIGNAL
+-- ============================================================================
+
+local MirrorImageReadyFrame = CreateFrame("Frame")
+MirrorImageReadyFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+
+local function DelayedCall(delay, callback)
+    local elapsed = 0
+    local frame = CreateFrame("Frame")
+    frame:SetScript("OnUpdate", function(self, dt)
+        elapsed = elapsed + dt
+        if elapsed >= delay then
+            self:SetScript("OnUpdate", nil)
+            callback()
+        end
+    end)
+end
+
+MirrorImageReadyFrame:SetScript("OnEvent", function(self, event, ...)
+    DelayedCall(0.3, function()
+        AIO.Msg():Add("TRANSMOG", "MirrorImageReady"):Send()
+    end)
+end)
+
+-- ============================================================================
 -- Slash Commands
 -- ============================================================================
 
