@@ -229,6 +229,7 @@ L["SETTING_HIDE_HAIR_CLOAK"] = "Masquer les cheveux sur l'aperçu des capes"
 L["SETTING_HIDE_HAIR_CHEST"] = "Masquer cheveux/barbe sur l'aperçu des torses"
 L["SETTING_HIDE_HAIR_SHIRT"] = "Masquer cheveux/barbe sur l'aperçu des chemises"
 L["SETTING_HIDE_HAIR_TABARD"] = "Masquer cheveux/barbe sur l'aperçu des tabards"
+L["SETTING_GRID_PREVIEW_SHOW_EQUIPMENT"] = "Afficher l'apparence actuelle dans la grille d'objets"
 
 -- Border Settings
 L["SETTINGS_UI"] = "Paramètres de l'interface utilisateur"

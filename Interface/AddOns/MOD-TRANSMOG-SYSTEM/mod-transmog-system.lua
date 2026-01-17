@@ -76,6 +76,9 @@ local function InitializeSettings()
     if TransmogSettings.account.showCharacterFrameButton == nil then
         TransmogSettings.account.showCharacterFrameButton = true
     end
+    if TransmogSettings.account.gridPreviewShowEquipment == nil then
+        TransmogSettings.account.gridPreviewShowEquipment = true
+    end
     
     -- Character-specific defaults (keyed by character name-realm)
     TransmogSettings.characters = TransmogSettings.characters or {}
@@ -3073,6 +3076,79 @@ local function SetupItemModel(frame, slotName)
     model:SetUnit("player")
     model:Undress()
     
+    local showEquipment = GetSetting("gridPreviewShowEquipment") == true
+    if showEquipment then
+        -- Slots to hide when previewing specific slots (to avoid visual overlap)
+        -- Key = slot being previewed, Value = table of slots to hide
+        local HIDE_WEAPONS = { MainHand = true, SecondaryHand = true, Ranged = true }
+        local SLOT_PREVIEW_HIDE = {
+            Head      = HIDE_WEAPONS,
+            Shoulder  = HIDE_WEAPONS,
+            Back      = HIDE_WEAPONS,
+            Chest     = HIDE_WEAPONS,
+            Shirt     = { Chest = true, Tabard = true, MainHand = true, SecondaryHand = true, Ranged = true },
+            Tabard    = { Chest = true, MainHand = true, SecondaryHand = true, Ranged = true },
+            Wrist     = { Hands = true, MainHand = true, SecondaryHand = true, Ranged = true },
+            Hands     = HIDE_WEAPONS,
+            Waist     = HIDE_WEAPONS,
+            Legs      = HIDE_WEAPONS,
+            Feet      = HIDE_WEAPONS,
+        }
+        local slotsToHide = SLOT_PREVIEW_HIDE[slotName] or {}
+        
+        -- Dress the model with current active transmog/equipped items for all slots EXCEPT:
+        -- 1. The preview slot itself
+        -- 2. Slots that would visually overlap/obscure the preview
+        for _, otherSlotName in ipairs(SLOT_ORDER) do
+            if otherSlotName ~= slotName and not slotsToHide[otherSlotName] then
+                local otherSlotId = SLOT_NAME_TO_EQUIP_SLOT[otherSlotName]
+                if otherSlotId then
+                    local invSlot = otherSlotId + 1
+                    local itemToShow = nil
+                    local enchantToShow = nil
+                    
+                    -- Priority: active transmog > equipped item
+                    if activeTransmogs[otherSlotId] and activeTransmogs[otherSlotId] > 0 then
+                        itemToShow = activeTransmogs[otherSlotId]
+                    elseif activeTransmogs[otherSlotId] == 0 then
+                        -- Slot is hidden - don't show anything
+                        itemToShow = nil
+                    else
+                        -- Fall back to real equipped item
+                        itemToShow = GetInventoryItemID("player", invSlot)
+                    end
+                    
+                    -- Get enchant for weapon slots
+                    if itemToShow and itemToShow > 0 and ENCHANT_ELIGIBLE_SLOTS[otherSlotName] then
+                        -- Priority: active enchant transmog > real equipped enchant
+                        if activeEnchantTransmogs[otherSlotId] then
+                            enchantToShow = activeEnchantTransmogs[otherSlotId]
+                        else
+                            local itemLink = GetInventoryItemLink("player", invSlot)
+                            if itemLink then
+                                local _, _, enchantStr = string.find(itemLink, "item:%d+:(%d+)")
+                                local realEnchant = enchantStr and tonumber(enchantStr)
+                                if realEnchant and realEnchant > 0 then
+                                    enchantToShow = realEnchant
+                                end
+                            end
+                        end
+                    end
+                    
+                    -- TryOn the item if we have one
+                    if itemToShow and itemToShow > 0 then
+                        if enchantToShow and enchantToShow > 0 then
+                            local itemLinkWithEnchant = string.format("item:%d:%d:0:0:0:0:0:0:0", itemToShow, enchantToShow)
+                            model:TryOn(itemLinkWithEnchant)
+                        else
+                            model:TryOn(itemToShow)
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
     -- Handle hair/beard hiding for specific slots using helmet items
     -- Item 12185 = Bloodsail Admiral's Hat (hides hair only)
     -- Item 16026 = Judgement Helm replica (hides hair + beard)
@@ -5687,6 +5763,7 @@ local function CreateSettingsPanel(parent)
     CreateCheckbox(L["SETTING_HIDE_HAIR_CHEST"] or "Hide hair/beard on Chest slot preview", "hideHairOnChestPreview", false)
     CreateCheckbox(L["SETTING_HIDE_HAIR_SHIRT"] or "Hide hair/beard on Shirt slot preview", "hideHairOnShirtPreview", false)
     CreateCheckbox(L["SETTING_HIDE_HAIR_TABARD"] or "Hide hair/beard on Tabard slot preview", "hideHairOnTabardPreview", false)
+    CreateCheckbox(L["SETTING_GRID_PREVIEW_SHOW_EQUIPMENT"] or "Show current transmog in grid preview", "gridPreviewShowEquipment", false)
     CreateCheckbox(L["SETTING_MERGE_BY_DISPLAY_ID"] or "Merge items by appearance (Display ID)", "mergeByDisplayId", false)
     
     -- ========================================

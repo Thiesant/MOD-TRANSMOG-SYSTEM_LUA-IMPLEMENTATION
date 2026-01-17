@@ -229,6 +229,7 @@ L["SETTING_HIDE_HAIR_CLOAK"] = "Hide hair on Cloak slot preview"
 L["SETTING_HIDE_HAIR_CHEST"] = "Hide hair/beard on Chest slot preview"
 L["SETTING_HIDE_HAIR_SHIRT"] = "Hide hair/beard on Shirt slot preview"
 L["SETTING_HIDE_HAIR_TABARD"] = "Hide hair/beard on Tabard slot preview"
+L["SETTING_GRID_PREVIEW_SHOW_EQUIPMENT"] = "Show current appearance in items grid preview"
 
 -- Border Settings
 L["SETTINGS_UI"] = "UI Settings"
