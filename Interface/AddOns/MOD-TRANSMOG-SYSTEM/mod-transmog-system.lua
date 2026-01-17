@@ -3294,12 +3294,17 @@ local SCROLLBAR_WIDTH = 20
 local GRID_LAYOUT = {
     armor = { cols = 5, rows = 4 },
     weapon = { cols = 4, rows = 4 },
+    enchant = { cols = 5, rows = 4 },
 }
 
 local function CalculateGridLayout()
-    local subclass = currentSubclass
-    local isWeapon = IsWeaponSubclass(subclass)
-    local layout = isWeapon and GRID_LAYOUT.weapon or GRID_LAYOUT.armor
+    local layout
+    if currentTransmogMode == TRANSMOG_MODE_ENCHANT then
+        layout = GRID_LAYOUT.enchant
+    else
+        local isWeapon = IsWeaponSubclass(currentSubclass)
+        layout = isWeapon and GRID_LAYOUT.weapon or GRID_LAYOUT.armor
+    end
     local cols, rows = layout.cols, layout.rows
     local availableWidth = GRID_WIDTH - SCROLLBAR_WIDTH - GRID_SPACING
     local itemWidth = math.floor((availableWidth - (cols - 1) * GRID_SPACING) / cols)
@@ -3377,6 +3382,9 @@ UpdatePreviewGrid = function()
     if gridScrollbar then
         gridScrollbar:SetMinMaxValues(1, math.max(1, totalPages))
         gridScrollbar:SetValue(currentPage)
+        if gridScrollbar.UpdateButtonStates then
+            gridScrollbar.UpdateButtonStates()
+        end
     end
     
     if mainFrame and mainFrame.pageText and not isSetsPreviewVisible then
@@ -3491,6 +3499,9 @@ UpdateEnchantGrid = function()
     if gridScrollbar then
         gridScrollbar:SetMinMaxValues(1, math.max(1, totalPages))
         gridScrollbar:SetValue(currentEnchantPage)
+        if gridScrollbar.UpdateButtonStates then
+            gridScrollbar.UpdateButtonStates()
+        end
     end
     
     if mainFrame and mainFrame.pageText and not isSetsPreviewVisible then
@@ -3521,6 +3532,7 @@ local function CreatePreviewGrid(parent)
     upBtn:SetNormalTexture("Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Up")
     upBtn:SetPushedTexture("Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Down")
     upBtn:SetHighlightTexture("Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Highlight")
+    upBtn:SetDisabledTexture("Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Disabled")
     
     local downBtn = CreateFrame("Button", nil, scrollFrame)
     FrameSetSize(downBtn, 20, 20)
@@ -3528,6 +3540,7 @@ local function CreatePreviewGrid(parent)
     downBtn:SetNormalTexture("Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Up")
     downBtn:SetPushedTexture("Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Down")
     downBtn:SetHighlightTexture("Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Highlight")
+    downBtn:SetDisabledTexture("Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Disabled")
     
     local track = scrollFrame:CreateTexture(nil, "BACKGROUND")
     track:SetPoint("TOP", upBtn, "BOTTOM", 0, 0)
@@ -3554,6 +3567,35 @@ local function CreatePreviewGrid(parent)
     
     gridScrollbar = slider
     
+    -- Function to update button enabled/disabled states based on current position
+    local function UpdateScrollButtonStates()
+        local page, totalPages
+        if currentTransmogMode == TRANSMOG_MODE_ENCHANT then
+            local enchantList = GetFilteredEnchantVisuals(currentEnchantCategory)
+            local cols, rows = CalculateGridLayout()
+            local enchantPerPage = cols * rows
+            totalPages = math.max(1, math.ceil(#enchantList / enchantPerPage))
+            page = currentEnchantPage
+        else
+            totalPages = math.max(1, math.ceil(#currentItems / itemsPerPage))
+            page = currentPage
+        end
+        
+        -- Disable up button if at first page
+        if page <= 1 then
+            upBtn:Disable()
+        else
+            upBtn:Enable()
+        end
+        
+        -- Disable down button if at last page
+        if page >= totalPages then
+            downBtn:Disable()
+        else
+            downBtn:Enable()
+        end
+    end
+    
     local function ChangePage(delta)
         -- Handle enchant mode pagination
         if currentTransmogMode == TRANSMOG_MODE_ENCHANT then
@@ -3577,6 +3619,7 @@ local function CreatePreviewGrid(parent)
                 UpdatePreviewGrid()
             end
         end
+        UpdateScrollButtonStates()
     end
     
     upBtn:RegisterForClicks("LeftButtonUp", "LeftButtonDown")
@@ -3599,11 +3642,16 @@ local function CreatePreviewGrid(parent)
                 UpdatePreviewGrid()
             end
         end
+        UpdateScrollButtonStates()
     end)
     
     slider:SetScript("OnMouseWheel", function(self, delta) ChangePage(-delta) end)
     frame:EnableMouseWheel(true)
     frame:SetScript("OnMouseWheel", function(self, delta) ChangePage(-delta) end)
+    
+    slider.UpdateButtonStates = UpdateScrollButtonStates
+    
+    UpdateScrollButtonStates()
     
     return frame
 end
