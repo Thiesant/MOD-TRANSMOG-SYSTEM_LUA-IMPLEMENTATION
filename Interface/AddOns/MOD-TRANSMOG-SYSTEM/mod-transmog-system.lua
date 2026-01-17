@@ -6914,6 +6914,7 @@ local function CreateMinimapButton()
             print(L["HELP_1"])
             print(L["HELP_2"])
             print(L["HELP_3"])
+            print(L["HELP_4"])
         end
     end)
     
@@ -7195,6 +7196,14 @@ SlashCmdList["TRANSMOG"] = function(msg)
         print(L["HELP_1"])
         print(L["HELP_2"])
         print(L["HELP_3"])
+        print(L["HELP_4"])
+        return
+    end
+    
+    -- GM Command: Scan all characters' quests
+    if cmd == "quests" then
+        print(L["GM_SCAN_REQUEST"])
+        AIO.Msg():Add("TRANSMOG", "GMScanQuests"):Send()
         return
     end
     
@@ -7205,6 +7214,17 @@ SlashCmdList["TRANSMOG"] = function(msg)
         else
             mainFrame:Show()
         end
+    end
+end
+
+-- Handler for GM quest scan result
+TRANSMOG_HANDLER.GMScanQuestsResult = function(player, data)
+    if not data then return end
+    
+    if data.success then
+        print(string.format(L["GM_SCAN_SUCCESS"], data.message or "Command sent successfully"))
+    else
+        print(string.format(L["GM_SCAN_FAILED"], data.error or "Command failed"))
     end
 end
 

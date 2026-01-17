@@ -104,7 +104,12 @@ L["SLASH_TRANSMOG"] = "Addon |cff00ff00[Transmog]|r chargé. Tapper /transmog ou
 L["HELP_1"] = "|cff00ff00[Transmog]|r Aide:"
 L["HELP_2"] = "  /transmog - Ouvre/ferme la fenêtre de transmogrification"
 L["HELP_3"] = "  /transmog help - Montre ce message d'aide"
---L["HELP_4"] = ""
+L["HELP_4"] = "  /transmog quests - (GM) Analyse les quêtes de tous les personnages et ajoute les récompenses associées aux collections"
+
+-- GM Commands
+L["GM_SCAN_REQUEST"] = "|cff00ff00[Transmog]|r Requête d'analyse des quêtes pour tous les personnages..."
+L["GM_SCAN_SUCCESS"] = "|cff00ff00[Transmog]|r %s"
+L["GM_SCAN_FAILED"] = "|cffff0000[Transmog]|r %s"
 
 -- Error Messages
 L["APPEARANCE_NOT_COLLECTED"] = "Vous n'avez pas cette apparence"

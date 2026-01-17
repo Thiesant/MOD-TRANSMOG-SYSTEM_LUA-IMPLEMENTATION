@@ -1,5 +1,5 @@
 -- [Author : Thiesant] This script is free, if you bought it you got scammed.
--- v0.7
+-- v0.8
     -- ============================================================================
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -17,7 +17,7 @@
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 
 -- Values  : true or false
--- Default : true
+-- Default : true unless stated false
 
 -- ──────────────────────────────────── SCRIPT ────────────────────────────────────
 
@@ -35,7 +35,9 @@ local ENABLE_SCAN_ITEMS = true
 
 -- ENABLE_SCAN_QUESTS
 -- Sync quest items done prior to script installation
-local ENABLE_SCAN_QUESTS = true
+-- Default : false
+-- PLAYER_EVENT_ON_COMMAND section: GMScanQuests (/transmog quests) should be use instead
+local ENABLE_SCAN_QUESTS = false
 
 
 -- ────────────────────────── COLLECTION ON PLAYER LOGIN ──────────────────────────
@@ -49,7 +51,9 @@ local COLLECTION_ON_CHARACTER_LOGIN_SCANNED_ITEMS = true
 -- In pair with ENABLE_SCAN_QUESTS : allow to add items on collection from scan results
 -- This is used to add items to collection from ongoing and turned quests prior to 
 -- this script installation, containers rewards are skipped to avoid abuse
-local COLLECTION_ON_PREVIOUS_QUESTS = true
+-- Default : false
+-- PLAYER_EVENT_ON_COMMAND section: GMScanQuests (/transmog quests) should be use instead
+local COLLECTION_ON_PREVIOUS_QUESTS = false
 
 
 -- ─────────────────────────────── COLLECTION RULES ───────────────────────────────
@@ -91,6 +95,7 @@ local ENABLE_TRANSMOG_APPLY_TRANSMOG_VISUAL = true
 -- Set to true to allow players to apply transmog from items they haven't collected
 -- When true, players can use any valid transmog appearance (useful for testing or custom servers)
 -- When false (default), players must have the item in their collection to use it
+-- Default : false
 local ALLOW_UNCOLLECTED_TRANSMOG = false
 
 -- ALLOW_DISPLAY_ID_TRANSMOG
@@ -106,6 +111,7 @@ local ALLOW_DISPLAY_ID_TRANSMOG = true
 -- When enabled, players can select "Hide" in the transmog grid to make the slot invisible
 -- Slot IDs: 0=Head, 2=Shoulder, 14=Back, 4=Chest, 3=Shirt, 18=Tabard,
 --           8=Wrist, 9=Hands, 5=Waist, 6=Legs, 7=Feet, 15=MainHand, 16=SecondaryHand, 17=Ranged
+-- -- Default : false for 15, 16, 17
 local ALLOW_HIDE_SLOT = {
     [0]  = true,   -- Head
     [2]  = true,   -- Shoulder
@@ -162,14 +168,28 @@ local function IsItemBlacklisted(itemId)
 end
 
 
+-- ────────────────────────────────── GM COMMAND ──────────────────────────────────
+
+-- GM_SCAN_QUESTS_MIN_LEVEL
+-- Minimum GM level required to use /transmog quests command
+-- This command scans ALL characters' completed quests and adds rewards to their account collections
+-- 0 = Player, 1 = Moderator, 2 = GameMaster, 3 = Administrator
+-- Default : 3
+local GM_SCAN_QUESTS_MIN_LEVEL = 3
+
+-- Used for /transmog quests (GMScanQuests in PLAYER_EVENT_ON_COMMAND section)
+
+
 -- ───────────────────────────────── DEBUG TOGGLE ─────────────────────────────────
 
 -- ENABLE_DEBUG_MESSAGES
 -- Set to false to disable debug messages in the server console
+-- Default : false
 local ENABLE_DEBUG_MESSAGES = false
 
 -- MIRROR_IMAGE_DEBUG
 -- Enable debug prints for Mirror Image transmog (useful for troubleshooting)
+-- Default : false
 local MIRROR_IMAGE_DEBUG = false
 
 
@@ -2491,7 +2511,288 @@ if ENABLE_AIO_BRIDGE then
     -- PLAYER_EVENT_ON_COMMAND
     -- ============================================================================
     
-    -- TO DO - GM Command
+    -- GM Command: Scan all characters' quests and add rewards to collections
+    -- Usage: /transmog quests (client side)
+    -- Requires GM level defined by GM_SCAN_QUESTS_MIN_LEVEL
+    
+    local GMScanInProgress = false
+    local GMScanStats = { characters = 0, accounts = 0, items = 0, quests = 0 }
+    
+    -- Helper function to add item to collection without requiring player object
+    local function AddToCollectionDirect(accountId, itemId)
+        if not accountId or not itemId or itemId == 0 then return false end
+        
+        if IsItemBlacklisted(itemId) then
+            return false
+        end
+        
+        if not CanTransmogItem(itemId) then
+            return false
+        end
+        
+        CharDBExecute(string.format(
+            "INSERT IGNORE INTO mod_transmog_system_collection (account_id, item_id) VALUES (%d, %d)",
+            accountId, itemId
+        ))
+        
+        return true
+    end
+    
+    -- Process quest rewards for a single character (async)
+    -- 1. Scan completed quests (character_queststatus_rewarded) - get ALL items
+    -- 2. Scan active quests (character_queststatus) - get only StartItem
+    local function ProcessCharacterQuests(guid, accountId, playerName, onComplete)
+        local totalQuestsProcessed = 0
+        local totalItemsAdded = 0
+        local rewardedDone = false
+        local activeDone = false
+        
+        -- Helper to check if both scans are complete
+        local function CheckComplete()
+            if rewardedDone and activeDone and onComplete then
+                onComplete(totalQuestsProcessed, totalItemsAdded)
+            end
+        end
+        
+        -- 1. Scan completed quests (already turned in) - get ALL items
+        CharDBQueryAsync(
+            string.format("SELECT quest FROM character_queststatus_rewarded WHERE guid = %d", guid),
+            function(questQuery)
+                if not questQuery then
+                    rewardedDone = true
+                    CheckComplete()
+                    return
+                end
+                
+                local questIds = {}
+                repeat
+                    table.insert(questIds, questQuery:GetUInt32(0))
+                until not questQuery:NextRow()
+                
+                local questsProcessed = 0
+                local totalQuests = #questIds
+                
+                if totalQuests == 0 then
+                    rewardedDone = true
+                    CheckComplete()
+                    return
+                end
+                
+                -- Process each completed quest
+                for _, questId in ipairs(questIds) do
+                    WorldDBQueryAsync(
+                        string.format(
+                            "SELECT RewardItem1, RewardItem2, RewardItem3, RewardItem4, " ..
+                            "RewardChoiceItemID1, RewardChoiceItemID2, RewardChoiceItemID3, " ..
+                            "RewardChoiceItemID4, RewardChoiceItemID5, RewardChoiceItemID6, " ..
+                            "StartItem, " ..
+                            "RequiredItemId1, RequiredItemId2, RequiredItemId3, " ..
+                            "RequiredItemId4, RequiredItemId5, RequiredItemId6, " ..
+                            "ItemDrop1, ItemDrop2, ItemDrop3, ItemDrop4 " ..
+                            "FROM quest_template WHERE ID = %d",
+                            questId
+                        ),
+                        function(rewardQuery)
+                            questsProcessed = questsProcessed + 1
+                            
+                            if rewardQuery then
+                                for i = 0, 20 do
+                                    local itemId = rewardQuery:GetUInt32(i)
+                                    if itemId and itemId > 0 then
+                                        if AddToCollectionDirect(accountId, itemId) then
+                                            totalItemsAdded = totalItemsAdded + 1
+                                        end
+                                    end
+                                end
+                            end
+                            
+                            -- Check if all rewarded quests are processed
+                            if questsProcessed >= totalQuests then
+                                totalQuestsProcessed = totalQuestsProcessed + totalQuests
+                                rewardedDone = true
+                                CheckComplete()
+                            end
+                        end
+                    )
+                end
+            end
+        )
+        
+        -- 2. Scan quests in journal (active/ongoing) - only get StartItem
+        CharDBQueryAsync(
+            string.format("SELECT quest FROM character_queststatus WHERE guid = %d AND status > 0", guid),
+            function(activeQuestsQuery)
+                if not activeQuestsQuery then
+                    activeDone = true
+                    CheckComplete()
+                    return
+                end
+                
+                local activeQuestIds = {}
+                repeat
+                    table.insert(activeQuestIds, activeQuestsQuery:GetUInt32(0))
+                until not activeQuestsQuery:NextRow()
+                
+                local questsProcessed = 0
+                local totalQuests = #activeQuestIds
+                
+                if totalQuests == 0 then
+                    activeDone = true
+                    CheckComplete()
+                    return
+                end
+                
+                -- Process each active quest - only StartItem
+                for _, questId in ipairs(activeQuestIds) do
+                    WorldDBQueryAsync(
+                        string.format("SELECT StartItem FROM quest_template WHERE ID = %d", questId),
+                        function(startItemQuery)
+                            questsProcessed = questsProcessed + 1
+                            
+                            if startItemQuery then
+                                local startItem = startItemQuery:GetUInt32(0)
+                                if startItem and startItem > 0 then
+                                    if AddToCollectionDirect(accountId, startItem) then
+                                        totalItemsAdded = totalItemsAdded + 1
+                                    end
+                                end
+                            end
+                            
+                            -- Check if all active quests are processed
+                            if questsProcessed >= totalQuests then
+                                totalQuestsProcessed = totalQuestsProcessed + totalQuests
+                                activeDone = true
+                                CheckComplete()
+                            end
+                        end
+                    )
+                end
+            end
+        )
+    end
+    
+    -- Main function to scan all characters' quests
+    local function GMScanAllCharactersQuests(gmPlayer)
+        if GMScanInProgress then
+            gmPlayer:SendBroadcastMessage("|cffff0000[Transmog]|r Quest scan already in progress. Please wait.")
+            return
+        end
+        
+        GMScanInProgress = true
+        GMScanStats = { characters = 0, accounts = {}, items = 0, quests = 0 }
+        
+        local gmName = gmPlayer:GetName()
+        
+        gmPlayer:SendBroadcastMessage("|cff00ff00[Transmog]|r Starting quest scan for ALL characters...")
+        print(string.format("[Transmog] GM %s initiated quest scan for all characters", gmName))
+        
+        -- Query all characters with their account IDs
+        CharDBQueryAsync(
+            "SELECT guid, account, name FROM characters ORDER BY account",
+            function(charQuery)
+                if not charQuery then
+                    local gm = GetPlayerByName(gmName)
+                    if gm then
+                        gm:SendBroadcastMessage("|cffff0000[Transmog]|r No characters found in database.")
+                    end
+                    GMScanInProgress = false
+                    return
+                end
+                
+                local characters = {}
+                repeat
+                    table.insert(characters, {
+                        guid = charQuery:GetUInt32(0),
+                        account = charQuery:GetUInt32(1),
+                        name = charQuery:GetString(2)
+                    })
+                until not charQuery:NextRow()
+                
+                local totalCharacters = #characters
+                local processedCharacters = 0
+                local uniqueAccounts = {}
+                
+                local gm = GetPlayerByName(gmName)
+                if gm then
+                    gm:SendBroadcastMessage(string.format("|cff00ff00[Transmog]|r Found %d characters to process...", totalCharacters))
+                end
+                
+                local function ProcessNextCharacter(index)
+                    if index > totalCharacters then
+                        -- All done - send final report
+                        local accountCount = 0
+                        for _ in pairs(uniqueAccounts) do accountCount = accountCount + 1 end
+                        
+                        local finalGm = GetPlayerByName(gmName)
+                        if finalGm then
+                            finalGm:SendBroadcastMessage("|cff00ff00[Transmog]|r ════════════════════════════════════")
+                            finalGm:SendBroadcastMessage("|cff00ff00[Transmog]|r Quest scan completed!")
+                            finalGm:SendBroadcastMessage(string.format("|cff00ff00[Transmog]|r Characters processed: %d", GMScanStats.characters))
+                            finalGm:SendBroadcastMessage(string.format("|cff00ff00[Transmog]|r Accounts updated: %d", accountCount))
+                            finalGm:SendBroadcastMessage(string.format("|cff00ff00[Transmog]|r Total quests scanned: %d", GMScanStats.quests))
+                            finalGm:SendBroadcastMessage(string.format("|cff00ff00[Transmog]|r Items added to collections: %d", GMScanStats.items))
+                            finalGm:SendBroadcastMessage("|cff00ff00[Transmog]|r ════════════════════════════════════")
+                        end
+                        
+                        print(string.format("[Transmog] Quest scan completed: %d characters, %d accounts, %d quests, %d items",
+                            GMScanStats.characters, accountCount, GMScanStats.quests, GMScanStats.items))
+
+                        SendWorldMessage("|cff00ff00[Transmog]|r Quest collection sync completed. Type /reload to see new appearances added in collection.")
+                        
+                        GMScanInProgress = false
+                        return
+                    end
+                    
+                    local char = characters[index]
+                    uniqueAccounts[char.account] = true
+                    
+                    ProcessCharacterQuests(char.guid, char.account, char.name, function(quests, items)
+                        processedCharacters = processedCharacters + 1
+                        GMScanStats.characters = processedCharacters
+                        GMScanStats.quests = GMScanStats.quests + quests
+                        GMScanStats.items = GMScanStats.items + items
+                        
+                        if processedCharacters % 50 == 0 then
+                            local progressGm = GetPlayerByName(gmName)
+                            if progressGm then
+                                progressGm:SendBroadcastMessage(string.format(
+                                    "|cff00ff00[Transmog]|r Progress: %d/%d characters (%d%%)",
+                                    processedCharacters, totalCharacters,
+                                    math.floor(processedCharacters / totalCharacters * 100)
+                                ))
+                            end
+                        end
+                        
+                        ProcessNextCharacter(index + 1)
+                    end)
+                end
+                
+                ProcessNextCharacter(1)
+            end
+        )
+    end
+    
+    -- AIO Handler for GM quest scan request
+    TRANSMOG_HANDLER.GMScanQuests = function(player)
+        if not player then return end
+        
+        local gmRank = player:GetGMRank()
+        if gmRank < GM_SCAN_QUESTS_MIN_LEVEL then
+            player:SendBroadcastMessage("|cffff0000[Transmog]|r Insufficient permissions. GM level " .. GM_SCAN_QUESTS_MIN_LEVEL .. " required.")
+            AIO.Msg():Add("TRANSMOG", "GMScanQuestsResult", {
+                success = false,
+                error = "Insufficient permissions"
+            }):Send(player)
+            return
+        end
+        
+        GMScanAllCharactersQuests(player)
+        
+        AIO.Msg():Add("TRANSMOG", "GMScanQuestsResult", {
+            success = true,
+            message = "Scan started"
+        }):Send(player)
+    end
 
     -- ============================================================================
     -- PLAYER_EVENT_ON_QUEST_REWARD_ITEM - when pick a reward

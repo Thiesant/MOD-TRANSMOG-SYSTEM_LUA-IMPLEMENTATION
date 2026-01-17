@@ -104,7 +104,12 @@ L["SLASH_TRANSMOG"] = "|cff00ff00[Transmog]|r Addon loaded. Type /transmog or /t
 L["HELP_1"] = "|cff00ff00[Transmog]|r Help:"
 L["HELP_2"] = "  /transmog - Open/close transmogrification window"
 L["HELP_3"] = "  /transmog help - Show this help"
---L["HELP_4"] = ""
+L["HELP_4"] = "  /transmog quests - (GM) Scan all characters' quests and add rewards to collections"
+
+-- GM Commands
+L["GM_SCAN_REQUEST"] = "|cff00ff00[Transmog]|r Requesting quest scan for all characters..."
+L["GM_SCAN_SUCCESS"] = "|cff00ff00[Transmog]|r %s"
+L["GM_SCAN_FAILED"] = "|cffff0000[Transmog]|r %s"
 
 -- Error Messages
 L["APPEARANCE_NOT_COLLECTED"] = "You don't have this appearance"
